@@ -1,0 +1,137 @@
+# =============================================================================
+# Akiba — Production Overrides
+# =============================================================================
+# Layered on top of the base docker-compose.yml for production deployments.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Key differences from development:
+#   - No host-exposed ports (traffic flows through the API gateway / LB)
+#   - Resource limits to prevent any single container from starving the host
+#   - Always-restart policies for self-healing
+#   - Stronger security defaults (no management UIs exposed)
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — production hardening
+  # ---------------------------------------------------------------------------
+  postgres:
+    restart: always
+    ports: []  # No direct host access — only reachable within akiba-network
+    environment:
+      # In production these come from secrets management (Docker Swarm secrets,
+      # Vault, AWS SSM, etc.). Placeholder values here as a reminder.
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+  # ---------------------------------------------------------------------------
+  # Redis — production hardening
+  # ---------------------------------------------------------------------------
+  redis:
+    restart: always
+    ports: []  # Internal only
+    # Append-only file for durability + max-memory eviction policy
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ — production hardening
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    restart: always
+    ports: []  # No AMQP or management UI exposed to host
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?Set RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?Set RABBITMQ_PASS}
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # API Service — the NestJS application
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: ./services/api
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "4000:4000"  # The only externally reachable port in production
+    env_file:
+      - ./services/api/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - akiba-network
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # ---------------------------------------------------------------------------
+  # Admin Dashboard — Next.js standalone build
+  # ---------------------------------------------------------------------------
+  admin:
+    build:
+      context: ./apps/admin
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "3001:3001"
+    networks:
+      - akiba-network
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 128M
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s

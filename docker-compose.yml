@@ -1,0 +1,99 @@
+# =============================================================================
+# Akiba — Local Development Environment
+# =============================================================================
+# Spins up the backing services required to develop the Akiba platform locally.
+# Usage:
+#   pnpm docker:up        (or: docker compose up -d)
+#   pnpm docker:down      (or: docker compose down)
+#
+# Data is persisted in named volumes so it survives container restarts.
+# To wipe everything:  docker compose down -v
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL 16 — Primary data store
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: akiba-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: akiba_dev
+      POSTGRES_USER: akiba
+      POSTGRES_PASSWORD: akiba_dev_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - akiba-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U akiba -d akiba_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 — Caching, session store, rate-limiting
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: akiba-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - akiba-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # RabbitMQ 3 — Async messaging (transaction events, notifications, etc.)
+  # Management UI available at http://localhost:15672 (guest/guest)
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: akiba-rabbitmq
+    restart: unless-stopped
+    ports:
+      - "5672:5672"    # AMQP protocol
+      - "15672:15672"  # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: akiba
+      RABBITMQ_DEFAULT_PASS: akiba_dev_pass
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - akiba-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+# =============================================================================
+# Named volumes — survive container recreation
+# =============================================================================
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+
+# =============================================================================
+# Shared network — allows inter-service communication by container name
+# =============================================================================
+networks:
+  akiba-network:
+    driver: bridge

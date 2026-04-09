@@ -1,0 +1,40 @@
+{
+  "name": "akiba",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Akiba — Mobile-first wealth management platform for Senegal",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "db:generate": "pnpm --filter @akiba/database generate",
+    "db:migrate": "pnpm --filter @akiba/database migrate:dev",
+    "db:push": "pnpm --filter @akiba/database db:push",
+    "db:studio": "pnpm --filter @akiba/database studio",
+    "clean": "turbo run clean && rm -rf node_modules",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:reset": "docker compose down -v && docker compose up -d"
+  },
+  "devDependencies": {
+    "turbo": "^2.4.0",
+    "prettier": "^3.4.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@prisma/client",
+      "@prisma/engines",
+      "prisma",
+      "bcrypt",
+      "sharp",
+      "@nestjs/core"
+    ]
+  }
+}

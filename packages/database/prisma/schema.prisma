@@ -1,0 +1,656 @@
+// ============================================================================
+// Akiba — Complete Database Schema
+// PostgreSQL via Prisma ORM
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+// USER DOMAIN
+// ============================================================================
+
+enum KycStatus {
+  pending
+  submitted
+  verified
+  rejected
+}
+
+enum KycTier {
+  tier_0 // Phone only — browse, no transactions
+  tier_1 // Basic KYC — ID photo + selfie — 200,000 FCFA/day
+  tier_2 // Full KYC — ID verification + address — 2,000,000 FCFA/day
+  tier_3 // Enhanced — video call — no limit
+}
+
+enum RiskProfile {
+  conservative
+  balanced
+  aggressive
+}
+
+enum Language {
+  fr
+  wo
+  en
+}
+
+model User {
+  id              String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phoneNumber     String       @unique @map("phone_number") @db.VarChar(20)
+  email           String?      @unique @db.VarChar(255)
+  fullName        String       @map("full_name") @db.VarChar(255)
+  dateOfBirth     DateTime?    @map("date_of_birth") @db.Date
+  nationalIdNumber String?     @map("national_id_number") @db.VarChar(50)
+  kycStatus       KycStatus    @default(pending) @map("kyc_status")
+  kycTier         KycTier      @default(tier_0) @map("kyc_tier")
+  riskProfile     RiskProfile? @map("risk_profile")
+  isHalalOnly     Boolean      @default(false) @map("is_halal_only")
+  preferredLanguage Language   @default(fr) @map("preferred_language")
+  referralCode    String       @unique @map("referral_code") @db.VarChar(20)
+  referredById    String?      @map("referred_by") @db.Uuid
+  pinHash         String?      @map("pin_hash") @db.VarChar(255)
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  // Relations
+  referredBy      User?        @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals       User[]       @relation("UserReferrals")
+  wallets         Wallet[]
+  transactions    Transaction[]
+  portfolios      Portfolio[]
+  savingsGoals    SavingsGoal[]
+  recurringDeposits RecurringDeposit[]
+  devices         UserDevice[]
+  kycDocuments    KycDocument[]
+  notifications   Notification[]
+  learningProgress LearningProgress[]
+  auditLogs       AuditLog[]
+
+  @@index([phoneNumber])
+  @@index([email])
+  @@index([referralCode])
+  @@index([kycStatus])
+  @@index([createdAt])
+  @@map("users")
+}
+
+model UserDevice {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  deviceId    String   @map("device_id") @db.VarChar(255)
+  deviceName  String?  @map("device_name") @db.VarChar(255)
+  platform    String   @db.VarChar(20) // 'ios', 'android', 'web'
+  pushToken   String?  @map("push_token") @db.VarChar(500)
+  isActive    Boolean  @default(true) @map("is_active")
+  lastLoginAt DateTime? @map("last_login_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@map("user_devices")
+}
+
+model KycDocument {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  documentType String   @map("document_type") @db.VarChar(50) // 'national_id_front', 'national_id_back', 'selfie', 'proof_of_address'
+  s3Key        String   @map("s3_key") @db.VarChar(500)
+  status       KycStatus @default(pending)
+  reviewedBy   String?  @map("reviewed_by") @db.Uuid
+  reviewNotes  String?  @map("review_notes")
+  externalVerificationId String? @map("external_verification_id") @db.VarChar(255) // Smile ID reference
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("kyc_documents")
+}
+
+// ============================================================================
+// WALLET & TRANSACTION DOMAIN (Double-Entry Ledger)
+// ============================================================================
+
+enum WalletType {
+  cash
+  investment
+  savings
+}
+
+model Wallet {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String     @map("user_id") @db.Uuid
+  walletType  WalletType @map("wallet_type")
+  balanceFcfa BigInt     @default(0) @map("balance_fcfa")
+  piSpiAlias  String?    @map("pi_spi_alias") @db.VarChar(100)
+  currency    String     @default("XOF") @db.VarChar(3)
+  createdAt   DateTime   @default(now()) @map("created_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([userId, walletType])
+  @@index([userId])
+  @@index([piSpiAlias])
+  @@map("wallets")
+}
+
+enum TransactionType {
+  deposit
+  withdrawal
+  investment
+  dividend
+  fee
+  transfer
+  refund
+}
+
+enum TransactionStatus {
+  pending
+  processing
+  completed
+  failed
+  reversed
+}
+
+model Transaction {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String            @map("user_id") @db.Uuid
+  walletId          String            @map("wallet_id") @db.Uuid
+  type              TransactionType
+  amountFcfa        BigInt            @map("amount_fcfa")
+  feeFcfa           BigInt            @default(0) @map("fee_fcfa")
+  status            TransactionStatus @default(pending)
+  piSpiReference    String?           @map("pi_spi_reference") @db.VarChar(100)
+  externalReference String?           @map("external_reference") @db.VarChar(100)
+  description       String?
+  metadata          Json?
+  idempotencyKey    String?           @unique @map("idempotency_key") @db.VarChar(255)
+  createdAt         DateTime          @default(now()) @map("created_at")
+  completedAt       DateTime?         @map("completed_at")
+
+  user   User   @relation(fields: [userId], references: [id])
+  wallet Wallet @relation(fields: [walletId], references: [id])
+
+  // Double-entry ledger entries
+  ledgerEntries LedgerEntry[]
+
+  @@index([userId])
+  @@index([walletId])
+  @@index([status])
+  @@index([piSpiReference])
+  @@index([externalReference])
+  @@index([createdAt])
+  @@index([type, status])
+  @@map("transactions")
+}
+
+// Double-entry bookkeeping ledger
+model LedgerEntry {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  transactionId String   @map("transaction_id") @db.Uuid
+  accountType   String   @map("account_type") @db.VarChar(50) // 'user_cash', 'user_investment', 'platform_fees', 'pi_spi_clearing'
+  accountId     String   @map("account_id") @db.VarChar(100)
+  debitFcfa     BigInt   @default(0) @map("debit_fcfa")
+  creditFcfa    BigInt   @default(0) @map("credit_fcfa")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  transaction Transaction @relation(fields: [transactionId], references: [id])
+
+  @@index([transactionId])
+  @@index([accountType, accountId])
+  @@index([createdAt])
+  @@map("ledger_entries")
+}
+
+// ============================================================================
+// ASSET & MARKET DOMAIN
+// ============================================================================
+
+enum AssetType {
+  equity
+  government_bond
+  treasury_bill
+  mutual_fund
+  sukuk
+  savings_vault
+}
+
+enum RiskLevel {
+  very_low
+  low
+  medium
+  high
+}
+
+model Asset {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ticker            String    @unique @db.VarChar(20)
+  name              String    @db.VarChar(255)
+  assetType         AssetType @map("asset_type")
+  market            String    @default("BRVM") @db.VarChar(50)
+  isShareCompliant  Boolean   @default(false) @map("is_sharia_compliant")
+  currentPriceFcfa  BigInt?   @map("current_price_fcfa")
+  currency          String    @default("XOF") @db.VarChar(3)
+  riskLevel         RiskLevel @map("risk_level")
+  description       String?
+  sector            String?   @db.VarChar(100)
+  isActive          Boolean   @default(true) @map("is_active")
+  lastPriceUpdate   DateTime? @map("last_price_update")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  // Sharia screening data
+  shariaDebtRatio       Float? @map("sharia_debt_ratio")      // Total debt / total assets (must be < 33%)
+  shariaInterestRatio   Float? @map("sharia_interest_ratio")  // Interest income / total revenue (must be < 5%)
+  shariaHaramRevenue    Float? @map("sharia_haram_revenue")   // Haram revenue / total revenue (must be < 5%)
+  shariaReceivableRatio Float? @map("sharia_receivable_ratio") // Receivables / total assets (must be < 49%)
+  shariaLastScreened    DateTime? @map("sharia_last_screened")
+
+  holdings    Holding[]
+  priceHistory AssetPriceHistory[]
+
+  @@index([assetType])
+  @@index([isShareCompliant])
+  @@index([isActive])
+  @@index([ticker])
+  @@map("assets")
+}
+
+model AssetPriceHistory {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assetId   String   @map("asset_id") @db.Uuid
+  priceFcfa BigInt   @map("price_fcfa")
+  openFcfa  BigInt?  @map("open_fcfa")
+  highFcfa  BigInt?  @map("high_fcfa")
+  lowFcfa   BigInt?  @map("low_fcfa")
+  volume    BigInt?
+  date      DateTime @db.Date
+  createdAt DateTime @default(now()) @map("created_at")
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@unique([assetId, date])
+  @@index([assetId, date])
+  @@map("asset_price_history")
+}
+
+// ============================================================================
+// PORTFOLIO & HOLDINGS DOMAIN
+// ============================================================================
+
+enum PortfolioType {
+  robo_managed
+  self_directed
+  halal
+  savings_goal
+}
+
+model Portfolio {
+  id               String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId           String        @map("user_id") @db.Uuid
+  name             String        @db.VarChar(100)
+  portfolioType    PortfolioType @map("portfolio_type")
+  targetAllocation Json?         @map("target_allocation") // { equity: 30, governmentBonds: 25, ... }
+  totalValueFcfa   BigInt        @default(0) @map("total_value_fcfa")
+  isActive         Boolean       @default(true) @map("is_active")
+  lastRebalancedAt DateTime?     @map("last_rebalanced_at")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  holdings     Holding[]
+  savingsGoal  SavingsGoal?
+  tradeOrders  TradeOrder[]
+
+  @@index([userId])
+  @@index([portfolioType])
+  @@map("portfolios")
+}
+
+model Holding {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  portfolioId    String   @map("portfolio_id") @db.Uuid
+  assetId        String   @map("asset_id") @db.Uuid
+  quantity       Decimal  @db.Decimal(20, 8) // Supports fractional shares
+  averageCostFcfa Decimal @map("average_cost_fcfa") @db.Decimal(20, 4)
+  currentValueFcfa BigInt @default(0) @map("current_value_fcfa")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  asset     Asset     @relation(fields: [assetId], references: [id])
+
+  @@unique([portfolioId, assetId])
+  @@index([portfolioId])
+  @@index([assetId])
+  @@map("holdings")
+}
+
+enum TradeOrderStatus {
+  pending
+  queued     // Waiting for batch execution
+  executing
+  filled
+  partially_filled
+  cancelled
+  failed
+}
+
+enum TradeOrderSide {
+  buy
+  sell
+}
+
+model TradeOrder {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  portfolioId    String           @map("portfolio_id") @db.Uuid
+  assetId        String           @map("asset_id") @db.Uuid
+  side           TradeOrderSide
+  quantityRequested Decimal       @map("quantity_requested") @db.Decimal(20, 8)
+  quantityFilled    Decimal?      @map("quantity_filled") @db.Decimal(20, 8)
+  amountFcfa     BigInt           @map("amount_fcfa")
+  status         TradeOrderStatus @default(pending)
+  batchId        String?          @map("batch_id") @db.Uuid // For batch execution via partner SGI
+  executedAt     DateTime?        @map("executed_at")
+  createdAt      DateTime         @default(now()) @map("created_at")
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id])
+
+  @@index([portfolioId])
+  @@index([status])
+  @@index([batchId])
+  @@index([createdAt])
+  @@map("trade_orders")
+}
+
+// ============================================================================
+// SAVINGS GOALS DOMAIN
+// ============================================================================
+
+enum GoalType {
+  emergency_fund
+  house
+  education
+  hajj
+  wedding
+  business
+  custom
+}
+
+enum Frequency {
+  daily
+  weekly
+  biweekly
+  monthly
+}
+
+model SavingsGoal {
+  id                    String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String     @map("user_id") @db.Uuid
+  portfolioId           String?    @unique @map("portfolio_id") @db.Uuid
+  name                  String     @db.VarChar(100)
+  goalType              GoalType   @map("goal_type")
+  targetAmountFcfa      BigInt     @map("target_amount_fcfa")
+  currentAmountFcfa     BigInt     @default(0) @map("current_amount_fcfa")
+  targetDate            DateTime?  @map("target_date") @db.Date
+  autoDepositAmountFcfa BigInt?    @map("auto_deposit_amount_fcfa")
+  autoDepositFrequency  Frequency? @map("auto_deposit_frequency")
+  isActive              Boolean    @default(true) @map("is_active")
+  completedAt           DateTime?  @map("completed_at")
+  createdAt             DateTime   @default(now()) @map("created_at")
+  updatedAt             DateTime   @updatedAt @map("updated_at")
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  portfolio         Portfolio?         @relation(fields: [portfolioId], references: [id])
+  recurringDeposits RecurringDeposit[]
+
+  @@index([userId])
+  @@index([goalType])
+  @@index([isActive])
+  @@map("savings_goals")
+}
+
+model RecurringDeposit {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  savingsGoalId        String?   @map("savings_goal_id") @db.Uuid
+  portfolioId          String?   @map("portfolio_id") @db.Uuid
+  amountFcfa           BigInt    @map("amount_fcfa")
+  frequency            Frequency
+  sourceWalletType     String?   @map("source_wallet_type") @db.VarChar(50) // 'wave', 'orange_money', 'bank'
+  piSpiMandateReference String?  @map("pi_spi_mandate_reference") @db.VarChar(100)
+  nextExecutionDate    DateTime  @map("next_execution_date") @db.Date
+  lastExecutionDate    DateTime? @map("last_execution_date") @db.Date
+  isActive             Boolean   @default(true) @map("is_active")
+  failureCount         Int       @default(0) @map("failure_count")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  savingsGoal SavingsGoal? @relation(fields: [savingsGoalId], references: [id])
+
+  @@index([userId])
+  @@index([nextExecutionDate, isActive])
+  @@map("recurring_deposits")
+}
+
+// ============================================================================
+// EDUCATION & GAMIFICATION DOMAIN
+// ============================================================================
+
+model LearningPath {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug        String   @unique @db.VarChar(100)
+  titleFr     String   @map("title_fr") @db.VarChar(255)
+  titleWo     String?  @map("title_wo") @db.VarChar(255)
+  titleEn     String?  @map("title_en") @db.VarChar(255)
+  description String?
+  iconUrl     String?  @map("icon_url") @db.VarChar(500)
+  sortOrder   Int      @default(0) @map("sort_order")
+  unlocksFeature String? @map("unlocks_feature") @db.VarChar(100) // Feature unlocked on completion
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  lessons Lesson[]
+
+  @@map("learning_paths")
+}
+
+model Lesson {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  learningPathId String   @map("learning_path_id") @db.Uuid
+  slug           String   @unique @db.VarChar(100)
+  titleFr        String   @map("title_fr") @db.VarChar(255)
+  titleWo        String?  @map("title_wo") @db.VarChar(255)
+  titleEn        String?  @map("title_en") @db.VarChar(255)
+  contentFr      String   @map("content_fr") // Markdown content
+  contentWo      String?  @map("content_wo")
+  contentEn      String?  @map("content_en")
+  sortOrder      Int      @default(0) @map("sort_order")
+  quizQuestions  Json?    @map("quiz_questions") // Array of { question, options, correctIndex }
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  learningPath     LearningPath       @relation(fields: [learningPathId], references: [id])
+  learningProgress LearningProgress[]
+
+  @@index([learningPathId, sortOrder])
+  @@map("lessons")
+}
+
+model LearningProgress {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  lessonId    String    @map("lesson_id") @db.Uuid
+  isCompleted Boolean   @default(false) @map("is_completed")
+  quizScore   Int?      @map("quiz_score") // Percentage 0-100
+  completedAt DateTime? @map("completed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id])
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+  @@map("learning_progress")
+}
+
+model Badge {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug        String   @unique @db.VarChar(100)
+  nameFr      String   @map("name_fr") @db.VarChar(255)
+  nameWo      String?  @map("name_wo") @db.VarChar(255)
+  nameEn      String?  @map("name_en") @db.VarChar(255)
+  description String?
+  iconUrl     String?  @map("icon_url") @db.VarChar(500)
+  criteria    Json     // { type: 'first_deposit' | 'course_complete' | 'streak', ... }
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  userBadges UserBadge[]
+
+  @@map("badges")
+}
+
+model UserBadge {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  badgeId   String   @map("badge_id") @db.Uuid
+  earnedAt  DateTime @default(now()) @map("earned_at")
+
+  badge Badge @relation(fields: [badgeId], references: [id])
+
+  @@unique([userId, badgeId])
+  @@index([userId])
+  @@map("user_badges")
+}
+
+// ============================================================================
+// NOTIFICATION DOMAIN
+// ============================================================================
+
+enum NotificationChannel {
+  push
+  sms
+  email
+  in_app
+}
+
+model Notification {
+  id        String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String              @map("user_id") @db.Uuid
+  channel   NotificationChannel
+  titleFr   String              @map("title_fr") @db.VarChar(255)
+  titleWo   String?             @map("title_wo") @db.VarChar(255)
+  bodyFr    String              @map("body_fr")
+  bodyWo    String?             @map("body_wo")
+  data      Json?               // Deep link data, action context
+  isRead    Boolean             @default(false) @map("is_read")
+  sentAt    DateTime?           @map("sent_at")
+  readAt    DateTime?           @map("read_at")
+  createdAt DateTime            @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============================================================================
+// COMPLIANCE & AUDIT DOMAIN
+// ============================================================================
+
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  adminId    String?  @map("admin_id") @db.Uuid
+  action     String   @db.VarChar(100) // 'login', 'deposit', 'kyc_approved', 'trade_executed', etc.
+  entityType String?  @map("entity_type") @db.VarChar(50) // 'user', 'transaction', 'portfolio', etc.
+  entityId   String?  @map("entity_id") @db.Uuid
+  details    Json?
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  userAgent  String?  @map("user_agent") @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model AmlAlert {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  alertType     String   @map("alert_type") @db.VarChar(100) // 'threshold_exceeded', 'structuring', 'rapid_movement', 'sanctions_match'
+  severity      String   @db.VarChar(20) // 'low', 'medium', 'high', 'critical'
+  description   String
+  transactionIds String[] @map("transaction_ids") @db.Uuid
+  status        String   @default("open") @db.VarChar(20) // 'open', 'investigating', 'escalated', 'resolved', 'str_filed'
+  reviewedBy    String?  @map("reviewed_by") @db.Uuid
+  reviewNotes   String?  @map("review_notes")
+  strReference  String?  @map("str_reference") @db.VarChar(100) // CENTIF STR reference
+  createdAt     DateTime @default(now()) @map("created_at")
+  resolvedAt    DateTime? @map("resolved_at")
+
+  @@index([userId])
+  @@index([status])
+  @@index([severity])
+  @@index([createdAt])
+  @@map("aml_alerts")
+}
+
+model SanctionsList {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  source      String   @db.VarChar(50) // 'OFAC', 'EU', 'BCEAO', 'UN'
+  fullName    String   @map("full_name") @db.VarChar(255)
+  aliases     String[] @db.VarChar(255)
+  dateOfBirth String?  @map("date_of_birth") @db.VarChar(20)
+  nationality String?  @db.VarChar(100)
+  listDate    DateTime @map("list_date") @db.Date
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@index([fullName])
+  @@index([source])
+  @@map("sanctions_list")
+}
+
+// ============================================================================
+// ADMIN DOMAIN
+// ============================================================================
+
+enum AdminRole {
+  super_admin
+  admin
+  compliance_officer
+  support
+}
+
+model AdminUser {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email       String    @unique @db.VarChar(255)
+  fullName    String    @map("full_name") @db.VarChar(255)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  role        AdminRole @default(support)
+  isActive    Boolean   @default(true) @map("is_active")
+  lastLoginAt DateTime? @map("last_login_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@map("admin_users")
+}

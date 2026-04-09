@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+@theme {
+  /* Akiba brand colors */
+  --color-akiba-navy: #1A1A2E;
+  --color-akiba-navy-light: #22223A;
+  --color-akiba-navy-lighter: #2D2D48;
+  --color-akiba-green: #00A86B;
+  --color-akiba-green-light: #00C97B;
+  --color-akiba-gold: #F5A623;
+  --color-akiba-gold-light: #FFB84D;
+  --color-akiba-red: #E74C3C;
+  --color-akiba-red-light: #FF6B6B;
+  --color-akiba-blue: #3498DB;
+
+  /* Surface colors for dark theme */
+  --color-surface-primary: #0F0F1A;
+  --color-surface-secondary: #1A1A2E;
+  --color-surface-tertiary: #22223A;
+  --color-surface-hover: #2D2D48;
+  --color-surface-border: #3A3A52;
+
+  /* Text colors */
+  --color-text-primary: #F0F0F5;
+  --color-text-secondary: #A0A0B8;
+  --color-text-muted: #6B6B80;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-surface-primary);
+  color: var(--color-text-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}

@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "Akiba",
+    "slug": "akiba",
+    "scheme": "akiba",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#00A86B"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.akiba.mobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Akiba needs camera access for KYC document verification.",
+        "NSPhotoLibraryUsageDescription": "Akiba needs photo library access for KYC document upload.",
+        "NSFaceIDUsageDescription": "Use Face ID to securely access your Akiba account."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#00A86B"
+      },
+      "package": "com.akiba.mobile",
+      "permissions": [
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-local-authentication",
+      "expo-notifications",
+      "expo-image-picker",
+      "expo-localization",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Akiba needs photo access for KYC document upload."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      }
+    }
+  }
+}
