@@ -36,6 +36,9 @@ docker-data/
 # Turbo
 .turbo/
 
+# Worktrees
+.worktrees/
+
 # Logs
 *.log
 npm-debug.log*
