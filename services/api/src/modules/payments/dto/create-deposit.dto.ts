@@ -27,7 +27,7 @@ export class CreateDepositDto {
   @IsNumber()
   @IsPositive()
   @Min(500, { message: 'Minimum deposit is 500 CFA' })
-  amount: number;
+  amount!: number;
 
   @ApiProperty({
     description: 'Payment provider (PI-SPI compliant)',
@@ -35,7 +35,7 @@ export class CreateDepositDto {
     example: DepositProvider.ORANGE_MONEY,
   })
   @IsEnum(DepositProvider)
-  provider: DepositProvider;
+  provider!: DepositProvider;
 
   @ApiProperty({
     description: 'Source mobile money number or account reference',
@@ -43,7 +43,7 @@ export class CreateDepositDto {
   })
   @IsString()
   @IsNotEmpty()
-  sourceAccount: string;
+  sourceAccount!: string;
 
   @ApiProperty({
     description: 'Optional reference note',

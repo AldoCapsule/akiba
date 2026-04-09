@@ -13,7 +13,6 @@ import {
   ApiTags,
   ApiOperation,
   ApiOkResponse,
-  ApiCreatedResponse,
   ApiBearerAuth,
   ApiParam,
   ApiQuery,
@@ -46,7 +45,7 @@ export class EducationController {
   @ApiParam({ name: 'pathId', description: 'Learning path UUID' })
   @ApiOkResponse({ description: 'Path details returned' })
   @ApiNotFoundResponse({ description: 'Path not found' })
-  async getPath(@Request() req: any, @Param('pathId') pathId: string) {
+  async getPath(@Request() req: any, @Param('pathId') pathId: string): Promise<any> {
     return this.educationService.getPath(req.user?.id, pathId);
   }
 
@@ -62,7 +61,7 @@ export class EducationController {
     @Request() req: any,
     @Param('pathId') pathId: string,
     @Param('lessonId') lessonId: string,
-  ) {
+  ): Promise<any> {
     return this.educationService.getLesson(req.user?.id, pathId, lessonId);
   }
 

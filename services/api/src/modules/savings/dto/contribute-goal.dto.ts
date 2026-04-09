@@ -10,7 +10,7 @@ export class ContributeGoalDto {
   @IsNumber()
   @IsPositive()
   @Min(500, { message: 'Minimum contribution is 500 CFA' })
-  amount: number;
+  amount!: number;
 
   @ApiProperty({
     description: '4-digit PIN for authorization',
@@ -18,7 +18,7 @@ export class ContributeGoalDto {
   })
   @IsString()
   @IsNotEmpty()
-  pin: string;
+  pin!: string;
 
   @ApiProperty({
     description: 'Optional note',

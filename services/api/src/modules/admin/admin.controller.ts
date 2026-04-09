@@ -2,13 +2,10 @@ import {
   Controller,
   Get,
   Put,
-  Post,
   Param,
   Query,
   Body,
   Request,
-  HttpCode,
-  HttpStatus,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -76,7 +73,7 @@ export class AdminController {
     @Param('id') id: string,
     @Body() dto: { status: string; reason?: string },
   ) {
-    return this.adminService.updateUserStatus(id, dto.status, dto.reason, req.user?.id);
+    return this.adminService.updateUserKycStatus(id, dto.status, dto.reason, req.user?.id);
   }
 
   // --- KYC Review ---
@@ -119,7 +116,7 @@ export class AdminController {
   async reviewKyc(
     @Request() req: any,
     @Param('id') id: string,
-    @Body() dto: { decision: 'APPROVED' | 'REJECTED'; reason?: string },
+    @Body() dto: { decision: 'verified' | 'rejected'; reason?: string },
   ) {
     return this.adminService.reviewKyc(id, dto.decision, dto.reason, req.user?.id);
   }

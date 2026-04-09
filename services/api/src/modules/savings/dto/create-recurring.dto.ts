@@ -24,7 +24,7 @@ export class CreateRecurringDto {
   })
   @IsString()
   @IsNotEmpty()
-  goalId: string;
+  goalId!: string;
 
   @ApiProperty({
     description: 'Recurring deposit amount in CFA francs',
@@ -34,7 +34,7 @@ export class CreateRecurringDto {
   @IsNumber()
   @IsPositive()
   @Min(500, { message: 'Minimum recurring amount is 500 CFA' })
-  amount: number;
+  amount!: number;
 
   @ApiProperty({
     description: 'Frequency of the recurring deposit',
@@ -42,7 +42,7 @@ export class CreateRecurringDto {
     example: RecurringFrequency.WEEKLY,
   })
   @IsEnum(RecurringFrequency)
-  frequency: RecurringFrequency;
+  frequency!: RecurringFrequency;
 
   @ApiProperty({
     description: 'Source mobile money account for auto-debit',
@@ -50,14 +50,14 @@ export class CreateRecurringDto {
   })
   @IsString()
   @IsNotEmpty()
-  sourceAccount: string;
+  sourceAccount!: string;
 
   @ApiProperty({
     description: 'Start date for recurring deposits',
     example: '2026-05-01',
   })
   @IsDateString()
-  startDate: string;
+  startDate!: string;
 
   @ApiProperty({
     description: 'End date for recurring deposits (optional, defaults to goal target date)',

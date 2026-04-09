@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { CreateTradeDto } from './dto/create-trade.dto';
 
@@ -22,7 +22,7 @@ export class InvestmentsService {
     // TODO: For MARKET order: fetch current price from MarketsService
     // TODO: For LIMIT order: store as pending until price conditions met
     // TODO: Submit order to broker/exchange integration
-    // TODO: Create trade record
+    // TODO: Create trade order record
 
     const portfolio = await this.db.portfolio.findFirst({
       where: { id: dto.portfolioId, userId },
@@ -32,33 +32,37 @@ export class InvestmentsService {
       throw new NotFoundException('Portfolio not found');
     }
 
+    // Look up asset by ticker
+    const asset = await this.db.asset.findFirst({
+      where: { ticker: dto.assetSymbol.toUpperCase() },
+    });
+
+    if (!asset) {
+      throw new NotFoundException(`Asset ${dto.assetSymbol} not found`);
+    }
+
     // TODO: Replace with actual price lookup
     const estimatedPrice = dto.limitPrice || 0;
     const estimatedTotal = estimatedPrice * dto.quantity;
 
-    const trade = await this.db.trade.create({
+    const tradeOrder = await this.db.tradeOrder.create({
       data: {
-        userId,
         portfolioId: dto.portfolioId,
-        assetSymbol: dto.assetSymbol,
-        type: dto.type,
-        orderType: dto.orderType,
-        quantity: dto.quantity,
-        limitPrice: dto.limitPrice,
-        estimatedPrice,
-        estimatedTotal,
-        note: dto.note,
-        status: dto.orderType === 'MARKET' ? 'EXECUTING' : 'PENDING',
+        assetId: asset.id,
+        side: dto.type === 'BUY' ? 'buy' : 'sell',
+        quantityRequested: dto.quantity,
+        amountFcfa: BigInt(estimatedTotal),
+        status: dto.orderType === 'MARKET' ? 'executing' : 'pending',
       },
     });
 
     this.logger.log(
-      `Trade created: ${trade.id} - ${dto.type} ${dto.quantity} ${dto.assetSymbol} (${dto.orderType})`,
+      `Trade order created: ${tradeOrder.id} - ${dto.type} ${dto.quantity} ${dto.assetSymbol} (${dto.orderType})`,
     );
 
     return {
-      tradeId: trade.id,
-      status: trade.status,
+      tradeId: tradeOrder.id,
+      status: tradeOrder.status,
       type: dto.type,
       assetSymbol: dto.assetSymbol,
       quantity: dto.quantity,
@@ -72,24 +76,32 @@ export class InvestmentsService {
     };
   }
 
-  async getTrades(userId: string, query: TradeQuery) {
+  async getTrades(userId: string, query: TradeQuery): Promise<any> {
     const { portfolioId, page, limit } = query;
     const skip = (page - 1) * Math.min(limit, 100);
     const take = Math.min(limit, 100);
 
-    const where: any = { userId };
+    // Find user's portfolio IDs to scope the query
+    const portfolioWhere: any = { userId };
     if (portfolioId) {
-      where.portfolioId = portfolioId;
+      portfolioWhere.id = portfolioId;
     }
+    const userPortfolios = await this.db.portfolio.findMany({
+      where: portfolioWhere,
+      select: { id: true },
+    });
+    const portfolioIds = userPortfolios.map((p) => p.id);
+
+    const where: any = { portfolioId: { in: portfolioIds } };
 
     const [trades, total] = await Promise.all([
-      this.db.trade.findMany({
+      this.db.tradeOrder.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip,
         take,
       }),
-      this.db.trade.count({ where }),
+      this.db.tradeOrder.count({ where }),
     ]);
 
     return {
@@ -103,54 +115,75 @@ export class InvestmentsService {
     };
   }
 
-  async getTrade(userId: string, tradeId: string) {
-    const trade = await this.db.trade.findFirst({
-      where: { id: tradeId, userId },
+  async getTrade(userId: string, tradeId: string): Promise<any> {
+    const trade = await this.db.tradeOrder.findFirst({
+      where: { id: tradeId },
+      include: { portfolio: { select: { userId: true } } },
     });
 
-    if (!trade) {
+    if (!trade || trade.portfolio.userId !== userId) {
       throw new NotFoundException('Trade not found');
     }
 
     return trade;
   }
 
-  async getHoldings(userId: string, portfolioId?: string) {
-    // TODO: Query holdings table grouped by asset
+  async getHoldings(userId: string, portfolioId?: string): Promise<any> {
     // TODO: Fetch current prices from MarketsService
     // TODO: Compute market value and unrealized gain/loss
 
-    const where: any = { userId };
+    const portfolioWhere: any = { userId };
     if (portfolioId) {
-      where.portfolioId = portfolioId;
+      portfolioWhere.id = portfolioId;
     }
+    const userPortfolios = await this.db.portfolio.findMany({
+      where: portfolioWhere,
+      select: { id: true },
+    });
+    const portfolioIds = userPortfolios.map((p) => p.id);
 
     const holdings = await this.db.holding.findMany({
-      where,
-      orderBy: { marketValue: 'desc' },
+      where: { portfolioId: { in: portfolioIds } },
+      orderBy: { currentValueFcfa: 'desc' },
     });
 
     return {
       holdings: holdings.map((h) => ({
-        assetSymbol: h.assetSymbol,
+        portfolioId: h.portfolioId,
+        assetId: h.assetId,
         quantity: h.quantity,
-        averageCost: h.averageCost,
-        currentPrice: 0, // TODO: Fetch live price
-        marketValue: h.marketValue,
-        unrealizedGain: 0, // TODO: Compute
+        averageCostFcfa: h.averageCostFcfa,
+        currentValueFcfa: h.currentValueFcfa,
+        unrealizedGain: BigInt(0), // TODO: Compute
         unrealizedGainPercent: 0,
       })),
-      totalMarketValue: holdings.reduce((sum, h) => sum + (h.marketValue || 0), 0),
+      totalMarketValue: holdings.reduce((sum, h) => sum + (h.currentValueFcfa || BigInt(0)), BigInt(0)),
     };
   }
 
-  async getHolding(userId: string, assetSymbol: string, portfolioId?: string) {
-    const where: any = { userId, assetSymbol };
-    if (portfolioId) {
-      where.portfolioId = portfolioId;
+  async getHolding(userId: string, assetSymbol: string, portfolioId?: string): Promise<any> {
+    // Look up asset by ticker
+    const asset = await this.db.asset.findFirst({
+      where: { ticker: assetSymbol.toUpperCase() },
+    });
+
+    if (!asset) {
+      throw new NotFoundException(`Asset ${assetSymbol} not found`);
     }
 
-    const holding = await this.db.holding.findFirst({ where });
+    const portfolioWhere: any = { userId };
+    if (portfolioId) {
+      portfolioWhere.id = portfolioId;
+    }
+    const userPortfolios = await this.db.portfolio.findMany({
+      where: portfolioWhere,
+      select: { id: true },
+    });
+    const portfolioIds = userPortfolios.map((p) => p.id);
+
+    const holding = await this.db.holding.findFirst({
+      where: { assetId: asset.id, portfolioId: { in: portfolioIds } },
+    });
 
     if (!holding) {
       throw new NotFoundException(`No holding found for ${assetSymbol}`);
@@ -159,13 +192,12 @@ export class InvestmentsService {
     // TODO: Fetch current price and compute detailed gain/loss breakdown
 
     return {
-      assetSymbol: holding.assetSymbol,
+      assetId: holding.assetId,
+      portfolioId: holding.portfolioId,
       quantity: holding.quantity,
-      averageCost: holding.averageCost,
-      totalCostBasis: holding.averageCost * holding.quantity,
-      currentPrice: 0, // TODO: Fetch live
-      marketValue: holding.marketValue,
-      unrealizedGain: 0,
+      averageCostFcfa: holding.averageCostFcfa,
+      currentValueFcfa: holding.currentValueFcfa,
+      unrealizedGain: BigInt(0),
       unrealizedGainPercent: 0,
     };
   }
@@ -174,22 +206,29 @@ export class InvestmentsService {
     // TODO: Aggregate all holdings across all portfolios
     // TODO: Compute total invested, total current value, total return
 
-    const holdings = await this.db.holding.findMany({
+    const userPortfolios = await this.db.portfolio.findMany({
       where: { userId },
+      select: { id: true },
+    });
+    const portfolioIds = userPortfolios.map((p) => p.id);
+
+    const holdings = await this.db.holding.findMany({
+      where: { portfolioId: { in: portfolioIds } },
     });
 
-    const totalMarketValue = holdings.reduce((sum, h) => sum + (h.marketValue || 0), 0);
+    const totalMarketValue = holdings.reduce((sum, h) => sum + (h.currentValueFcfa || BigInt(0)), BigInt(0));
+    // averageCostFcfa is Decimal, convert to Number for calculation
     const totalCostBasis = holdings.reduce(
-      (sum, h) => sum + (h.averageCost || 0) * (h.quantity || 0),
+      (sum, h) => sum + Number(h.averageCostFcfa || 0) * Number(h.quantity || 0),
       0,
     );
 
     return {
       totalInvested: totalCostBasis,
       totalMarketValue,
-      totalReturn: totalMarketValue - totalCostBasis,
+      totalReturn: Number(totalMarketValue) - totalCostBasis,
       totalReturnPercent: totalCostBasis > 0
-        ? ((totalMarketValue - totalCostBasis) / totalCostBasis) * 100
+        ? ((Number(totalMarketValue) - totalCostBasis) / totalCostBasis) * 100
         : 0,
       holdingCount: holdings.length,
       assetBreakdown: [], // TODO: Group by asset class

@@ -7,13 +7,12 @@ export class EducationService {
 
   constructor(private readonly db: DatabaseService) {}
 
-  async getPaths(userId: string | undefined, language?: string) {
-    const where: any = { status: 'PUBLISHED' };
-    if (language) where.language = language;
+  async getPaths(_userId: string | undefined, _language?: string) {
+    const where: any = { isActive: true };
 
     const paths = await this.db.learningPath.findMany({
       where,
-      orderBy: { order: 'asc' },
+      orderBy: { sortOrder: 'asc' },
       include: {
         _count: { select: { lessons: true } },
       },
@@ -23,66 +22,59 @@ export class EducationService {
 
     return paths.map((p) => ({
       id: p.id,
-      title: p.title,
+      title: p.titleFr,
+      titleFr: p.titleFr,
+      titleWo: p.titleWo,
+      titleEn: p.titleEn,
       description: p.description,
-      language: p.language,
-      difficulty: p.difficulty,
+      slug: p.slug,
       lessonCount: p._count.lessons,
-      estimatedMinutes: p.estimatedMinutes,
       completedLessons: 0, // TODO: Compute from user progress
       progressPercent: 0,
-      imageUrl: p.imageUrl,
+      iconUrl: p.iconUrl,
+      unlocksFeature: p.unlocksFeature,
     }));
   }
 
-  async getPath(userId: string | undefined, pathId: string) {
+  async getPath(_userId: string | undefined, pathId: string): Promise<any> {
     const path = await this.db.learningPath.findUnique({
       where: { id: pathId },
-      include: {
-        lessons: {
-          orderBy: { order: 'asc' },
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            order: true,
-            durationMinutes: true,
-            hasQuiz: true,
-            xpReward: true,
-          },
-        },
-      },
     });
 
     if (!path) {
       throw new NotFoundException('Learning path not found');
     }
 
+    const lessons = await this.db.lesson.findMany({
+      where: { learningPathId: pathId },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        id: true,
+        titleFr: true,
+        titleWo: true,
+        titleEn: true,
+        slug: true,
+        sortOrder: true,
+        quizQuestions: true,
+      },
+    });
+
     // TODO: If userId, mark which lessons are completed
 
     return {
       ...path,
-      lessons: path.lessons.map((l) => ({
+      lessons: lessons.map((l) => ({
         ...l,
+        hasQuiz: l.quizQuestions != null,
         isCompleted: false, // TODO: Check user progress
         quizScore: null, // TODO: Fetch user quiz result
       })),
     };
   }
 
-  async getLesson(userId: string | undefined, pathId: string, lessonId: string) {
+  async getLesson(_userId: string | undefined, pathId: string, lessonId: string): Promise<any> {
     const lesson = await this.db.lesson.findFirst({
-      where: { id: lessonId, pathId },
-      include: {
-        quizQuestions: {
-          select: {
-            id: true,
-            question: true,
-            options: true,
-            // Do NOT include correctAnswer here to prevent cheating
-          },
-        },
-      },
+      where: { id: lessonId, learningPathId: pathId },
     });
 
     if (!lesson) {
@@ -94,7 +86,7 @@ export class EducationService {
 
   async completeLesson(userId: string, pathId: string, lessonId: string) {
     const lesson = await this.db.lesson.findFirst({
-      where: { id: lessonId, pathId },
+      where: { id: lessonId, learningPathId: pathId },
     });
 
     if (!lesson) {
@@ -106,18 +98,18 @@ export class EducationService {
     // TODO: Check if badge criteria met
     // TODO: Update streak
 
-    const progress = await this.db.lessonProgress.upsert({
+    const progress = await this.db.learningProgress.upsert({
       where: {
         userId_lessonId: { userId, lessonId },
       },
       create: {
         userId,
         lessonId,
-        pathId,
+        isCompleted: true,
         completedAt: new Date(),
-        xpEarned: lesson.xpReward || 10,
       },
       update: {
+        isCompleted: true,
         completedAt: new Date(),
       },
     });
@@ -128,29 +120,32 @@ export class EducationService {
 
     return {
       lessonId,
-      xpEarned: progress.xpEarned,
-      message: `Lesson completed! You earned ${progress.xpEarned} XP.`,
+      isCompleted: progress.isCompleted,
+      message: 'Lesson completed!',
       newBadges: [], // TODO: Populate if badge criteria met
     };
   }
 
   async submitQuiz(
     userId: string,
-    pathId: string,
+    _pathId: string,
     lessonId: string,
     answers: { questionId: string; answer: string }[],
   ) {
-    const questions = await this.db.quizQuestion.findMany({
-      where: { lessonId },
+    const lesson = await this.db.lesson.findFirst({
+      where: { id: lessonId },
     });
 
-    if (questions.length === 0) {
+    if (!lesson || !lesson.quizQuestions) {
       throw new NotFoundException('No quiz found for this lesson');
     }
 
+    // quizQuestions is a JSON field: array of { question, options, correctIndex }
+    const questions = lesson.quizQuestions as any[];
+
     let correct = 0;
-    const results = answers.map((a) => {
-      const question = questions.find((q) => q.id === a.questionId);
+    const results = answers.map((a: { questionId: string; answer: string }) => {
+      const question = questions.find((q: any) => q.id === a.questionId);
       const isCorrect = question?.correctAnswer === a.answer;
       if (isCorrect) correct++;
       return {
@@ -160,20 +155,24 @@ export class EducationService {
       };
     });
 
-    const score = Math.round((correct / questions.length) * 100);
+    const score = questions.length > 0 ? Math.round((correct / questions.length) * 100) : 0;
     const passed = score >= 70;
 
-    // TODO: Store quiz result
-    // TODO: Award bonus XP for passing
-    // TODO: Check for quiz-related badges
-
-    await this.db.quizResult.create({
-      data: {
+    // Store quiz result as learning progress
+    await this.db.learningProgress.upsert({
+      where: {
+        userId_lessonId: { userId, lessonId },
+      },
+      create: {
         userId,
         lessonId,
-        score,
-        passed,
-        answers: JSON.stringify(answers),
+        isCompleted: true,
+        quizScore: score,
+        completedAt: new Date(),
+      },
+      update: {
+        quizScore: score,
+        completedAt: new Date(),
       },
     });
 
@@ -195,26 +194,16 @@ export class EducationService {
   }
 
   async getProgress(userId: string) {
-    const [completedLessons, totalXp, quizResults] = await Promise.all([
-      this.db.lessonProgress.count({ where: { userId } }),
-      this.db.lessonProgress.aggregate({
-        where: { userId },
-        _sum: { xpEarned: true },
-      }),
-      this.db.quizResult.count({ where: { userId, passed: true } }),
+    const [completedLessons, quizResults] = await Promise.all([
+      this.db.learningProgress.count({ where: { userId, isCompleted: true } }),
+      this.db.learningProgress.count({ where: { userId, quizScore: { gte: 70 } } }),
     ]);
-
-    const xp = totalXp._sum.xpEarned || 0;
-    const level = Math.floor(xp / 100) + 1;
 
     // TODO: Calculate streak from consecutive daily completions
     // TODO: Compute level progression percentage
 
     return {
       completedLessons,
-      totalXp: xp,
-      level,
-      xpToNextLevel: level * 100 - xp,
       quizzesPassed: quizResults,
       streak: 0, // TODO: Calculate
       badges: [], // TODO: Fetch from badges table
@@ -236,32 +225,36 @@ export class EducationService {
 
     return badges.map((b) => ({
       id: b.id,
-      name: b.name,
+      name: b.nameFr,
+      nameFr: b.nameFr,
+      nameWo: b.nameWo,
+      nameEn: b.nameEn,
       description: b.description,
-      imageUrl: b.imageUrl,
+      iconUrl: b.iconUrl,
       earnedAt: b.userBadges[0]?.earnedAt,
     }));
   }
 
-  async getLeaderboard(period: string) {
+  async getLeaderboard(_period: string) {
     // TODO: Filter by period (week, month, all-time)
     // TODO: Use materialized view or cache for performance
 
-    const leaderboard = await this.db.lessonProgress.groupBy({
+    const leaderboard = await this.db.learningProgress.groupBy({
       by: ['userId'],
-      _sum: { xpEarned: true },
-      orderBy: { _sum: { xpEarned: 'desc' } },
+      where: { isCompleted: true },
+      _count: { lessonId: true },
+      orderBy: { _count: { lessonId: 'desc' } },
       take: 50,
     });
 
     // TODO: Enrich with user names (consider privacy - use display names)
 
     return {
-      period,
-      data: leaderboard.map((entry, index) => ({
+      period: _period,
+      data: leaderboard.map((entry: any, index: number) => ({
         rank: index + 1,
         userId: entry.userId,
-        totalXp: entry._sum.xpEarned || 0,
+        completedLessons: entry._count.lessonId || 0,
         displayName: 'Anonymous', // TODO: Fetch user display name
       })),
     };

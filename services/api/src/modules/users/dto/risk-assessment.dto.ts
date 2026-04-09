@@ -29,7 +29,7 @@ export class RiskAssessmentDto {
   })
   @IsEnum(IncomeRange)
   @IsNotEmpty()
-  incomeRange: IncomeRange;
+  incomeRange!: IncomeRange;
 
   @ApiProperty({
     description: 'Investment time horizon',
@@ -38,7 +38,7 @@ export class RiskAssessmentDto {
   })
   @IsEnum(InvestmentHorizon)
   @IsNotEmpty()
-  investmentHorizon: InvestmentHorizon;
+  investmentHorizon!: InvestmentHorizon;
 
   @ApiProperty({
     description: 'Prior investment experience level',
@@ -47,7 +47,7 @@ export class RiskAssessmentDto {
   })
   @IsEnum(InvestmentExperience)
   @IsNotEmpty()
-  investmentExperience: InvestmentExperience;
+  investmentExperience!: InvestmentExperience;
 
   @ApiProperty({
     description: 'Risk tolerance score (1 = very conservative, 10 = very aggressive)',
@@ -58,7 +58,7 @@ export class RiskAssessmentDto {
   @IsInt()
   @Min(1)
   @Max(10)
-  riskTolerance: number;
+  riskTolerance!: number;
 
   @ApiProperty({
     description: 'Acceptable maximum loss percentage (1-50)',
@@ -69,5 +69,5 @@ export class RiskAssessmentDto {
   @IsInt()
   @Min(1)
   @Max(50)
-  maxAcceptableLoss: number;
+  maxAcceptableLoss!: number;
 }

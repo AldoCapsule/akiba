@@ -11,7 +11,7 @@ export class VerifyOtpDto {
   @Matches(/^\+\d{10,15}$/, {
     message: 'Phone number must be in E.164 format',
   })
-  phone: string;
+  phone!: string;
 
   @ApiProperty({
     description: 'Six-digit OTP code',
@@ -21,5 +21,5 @@ export class VerifyOtpDto {
   @IsNotEmpty()
   @Length(6, 6)
   @Matches(/^\d{6}$/, { message: 'OTP must be exactly 6 digits' })
-  code: string;
+  code!: string;
 }

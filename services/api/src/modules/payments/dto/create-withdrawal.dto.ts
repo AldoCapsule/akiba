@@ -27,7 +27,7 @@ export class CreateWithdrawalDto {
   @IsNumber()
   @IsPositive()
   @Min(1000, { message: 'Minimum withdrawal is 1000 CFA' })
-  amount: number;
+  amount!: number;
 
   @ApiProperty({
     description: 'Destination payment provider',
@@ -35,7 +35,7 @@ export class CreateWithdrawalDto {
     example: WithdrawalProvider.ORANGE_MONEY,
   })
   @IsEnum(WithdrawalProvider)
-  provider: WithdrawalProvider;
+  provider!: WithdrawalProvider;
 
   @ApiProperty({
     description: 'Destination mobile money number or bank account',
@@ -43,7 +43,7 @@ export class CreateWithdrawalDto {
   })
   @IsString()
   @IsNotEmpty()
-  destinationAccount: string;
+  destinationAccount!: string;
 
   @ApiProperty({
     description: '4-digit PIN for transaction authorization',
@@ -51,7 +51,7 @@ export class CreateWithdrawalDto {
   })
   @IsString()
   @IsNotEmpty()
-  pin: string;
+  pin!: string;
 
   @ApiProperty({
     description: 'Optional reference note',

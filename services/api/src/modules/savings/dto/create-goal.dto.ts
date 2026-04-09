@@ -29,7 +29,7 @@ export class CreateGoalDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
-  name: string;
+  name!: string;
 
   @ApiProperty({
     description: 'Goal category',
@@ -37,7 +37,7 @@ export class CreateGoalDto {
     example: GoalCategory.EMERGENCY_FUND,
   })
   @IsEnum(GoalCategory)
-  category: GoalCategory;
+  category!: GoalCategory;
 
   @ApiProperty({
     description: 'Target amount in CFA francs',
@@ -45,14 +45,14 @@ export class CreateGoalDto {
   })
   @IsNumber()
   @IsPositive()
-  targetAmount: number;
+  targetAmount!: number;
 
   @ApiProperty({
     description: 'Target date to reach the goal',
     example: '2027-06-30',
   })
   @IsDateString()
-  targetDate: string;
+  targetDate!: string;
 
   @ApiProperty({
     description: 'Optional description',

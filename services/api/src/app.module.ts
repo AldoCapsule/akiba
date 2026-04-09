@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { DatabaseModule } from './database/database.module';
+import { JwtAuthGuard } from './modules/auth/jwt-auth.guard';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { PaymentsModule } from './modules/payments/payments.module';
@@ -18,7 +20,6 @@ import { HealthModule } from './modules/health/health.module';
 
 @Module({
   imports: [
-    // Global configuration
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
@@ -29,10 +30,7 @@ import { HealthModule } from './modules/health/health.module';
       throttlers: [{ ttl: 60000, limit: 100 }],
     }),
 
-    // Cron jobs for recurring deposits, rebalancing, etc.
     ScheduleModule.forRoot(),
-
-    // Database
     DatabaseModule,
 
     // Feature modules
@@ -48,6 +46,12 @@ import { HealthModule } from './modules/health/health.module';
     NotificationsModule,
     ComplianceModule,
     AdminModule,
+  ],
+  providers: [
+    // Global JWT auth guard — all routes require auth unless @Public()
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // Global rate limiter
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
   ],
 })
 export class AppModule {}

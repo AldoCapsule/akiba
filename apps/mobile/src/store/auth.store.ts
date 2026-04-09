@@ -1,36 +1,29 @@
 import { create } from 'zustand';
 import { MMKV } from 'react-native-mmkv';
 import { Locale, getDeviceLocale, createTranslator } from '../i18n';
-import type { UserProfile } from '../api/auth';
+import type { UserData } from '../api/auth';
 
 const storage = new MMKV({ id: 'akiba-auth' });
 
 export interface AuthState {
-  /** Whether the user is authenticated (has valid tokens) */
   isAuthenticated: boolean;
-  /** Whether initial auth check is complete */
   isReady: boolean;
-  /** Current user profile */
-  user: UserProfile | null;
-  /** Phone number during registration flow */
+  user: UserData | null;
   pendingPhone: string | null;
-  /** Current locale */
   locale: Locale;
-  /** Translation function */
   t: ReturnType<typeof createTranslator>;
-  /** Whether user has completed onboarding */
   hasSeenOnboarding: boolean;
-  /** Whether biometric auth is enabled */
   biometricsEnabled: boolean;
+  needsPin: boolean; // User verified OTP but hasn't set PIN yet
 
-  /** Actions */
   setAuthenticated: (authenticated: boolean) => void;
   setReady: (ready: boolean) => void;
-  setUser: (user: UserProfile | null) => void;
+  setUser: (user: UserData | null) => void;
   setPendingPhone: (phone: string | null) => void;
   setLocale: (locale: Locale) => void;
   setHasSeenOnboarding: (seen: boolean) => void;
   setBiometricsEnabled: (enabled: boolean) => void;
+  setNeedsPin: (needs: boolean) => void;
   logout: () => void;
 }
 
@@ -48,14 +41,13 @@ export const useAuthStore = create<AuthState>((set) => {
     t: createTranslator(savedLocale),
     hasSeenOnboarding,
     biometricsEnabled,
+    needsPin: false,
 
     setAuthenticated: (authenticated) => set({ isAuthenticated: authenticated }),
-
     setReady: (ready) => set({ isReady: ready }),
-
     setUser: (user) => set({ user }),
-
     setPendingPhone: (phone) => set({ pendingPhone: phone }),
+    setNeedsPin: (needs) => set({ needsPin: needs }),
 
     setLocale: (locale) => {
       storage.set('locale', locale);
@@ -73,11 +65,7 @@ export const useAuthStore = create<AuthState>((set) => {
     },
 
     logout: () => {
-      set({
-        isAuthenticated: false,
-        user: null,
-        pendingPhone: null,
-      });
+      set({ isAuthenticated: false, user: null, pendingPhone: null, needsPin: false });
     },
   };
 });

@@ -20,8 +20,8 @@ interface AuditLogQuery {
 interface AuditLogEntry {
   userId?: string;
   action: string;
-  resource: string;
-  resourceId?: string;
+  entityType: string;
+  entityId?: string;
   details?: Record<string, any>;
   ipAddress?: string;
 }
@@ -53,11 +53,6 @@ export class ComplianceService {
         orderBy: { createdAt: 'desc' },
         skip,
         take,
-        include: {
-          user: {
-            select: { id: true, fullName: true, phone: true },
-          },
-        },
       }),
       this.db.amlAlert.count({ where }),
     ]);
@@ -71,11 +66,6 @@ export class ComplianceService {
   async getAlert(alertId: string) {
     const alert = await this.db.amlAlert.findUnique({
       where: { id: alertId },
-      include: {
-        user: {
-          select: { id: true, fullName: true, phone: true, kycStatus: true },
-        },
-      },
     });
 
     if (!alert) {
@@ -112,8 +102,7 @@ export class ComplianceService {
         status,
         reviewedBy: reviewerId,
         reviewNotes: notes,
-        reviewedAt: new Date(),
-        updatedAt: new Date(),
+        resolvedAt: status === 'resolved' ? new Date() : undefined,
       },
     });
 
@@ -138,31 +127,42 @@ export class ComplianceService {
 
     this.logger.log(`Sanctions screening for: ${dto.fullName}`);
 
-    // TODO: Replace with actual screening integration
-    const matches: any[] = [];
+    // Search against the sanctions list table
+    const sanctionsMatches = await this.db.sanctionsList.findMany({
+      where: {
+        OR: [
+          { fullName: { contains: dto.fullName, mode: 'insensitive' } },
+        ],
+        isActive: true,
+      },
+      take: 10,
+    });
 
-    // Record the screening for audit
-    await this.db.sanctionsScreening.create({
+    // Record the screening in audit log
+    await this.db.auditLog.create({
       data: {
-        fullName: dto.fullName,
-        dateOfBirth: dto.dateOfBirth ? new Date(dto.dateOfBirth) : null,
-        nationality: dto.nationality,
-        matchCount: matches.length,
-        result: matches.length > 0 ? 'POTENTIAL_MATCH' : 'CLEAR',
-        matches: JSON.stringify(matches),
+        action: 'sanctions_screening',
+        entityType: 'user',
+        details: {
+          fullName: dto.fullName,
+          dateOfBirth: dto.dateOfBirth || null,
+          nationality: dto.nationality || null,
+          matchCount: sanctionsMatches.length,
+          result: sanctionsMatches.length > 0 ? 'POTENTIAL_MATCH' : 'CLEAR',
+        },
       },
     });
 
     return {
       screened: dto.fullName,
-      result: matches.length > 0 ? 'POTENTIAL_MATCH' : 'CLEAR',
-      matchCount: matches.length,
-      matches,
+      result: sanctionsMatches.length > 0 ? 'POTENTIAL_MATCH' : 'CLEAR',
+      matchCount: sanctionsMatches.length,
+      matches: sanctionsMatches,
       screenedAt: new Date().toISOString(),
     };
   }
 
-  async getAuditLogs(query: AuditLogQuery) {
+  async getAuditLogs(query: AuditLogQuery): Promise<any> {
     const { userId, action, from, to, page, limit } = query;
     const skip = (page - 1) * Math.min(limit, 100);
     const take = Math.min(limit, 100);
@@ -197,9 +197,9 @@ export class ComplianceService {
       data: {
         userId: dto.userId,
         action: dto.action,
-        resource: dto.resource,
-        resourceId: dto.resourceId,
-        details: dto.details ? JSON.stringify(dto.details) : null,
+        entityType: dto.entityType,
+        entityId: dto.entityId,
+        details: dto.details ? (dto.details as any) : undefined,
         ipAddress: dto.ipAddress,
       },
     });
@@ -213,12 +213,12 @@ export class ComplianceService {
     // TODO: Also detect structuring (multiple transactions just below threshold)
     // TODO: Generate report in BCEAO-required format
 
-    const threshold = 15_000_000; // 15M XOF BCEAO reporting threshold
+    const threshold = BigInt(15_000_000); // 15M XOF BCEAO reporting threshold
 
     const transactions = await this.db.transaction.findMany({
       where: {
-        amount: { gte: threshold },
-        status: 'COMPLETED',
+        amountFcfa: { gte: threshold },
+        status: 'completed',
         createdAt: {
           gte: new Date(from),
           lte: new Date(to),
@@ -226,7 +226,7 @@ export class ComplianceService {
       },
       include: {
         user: {
-          select: { id: true, fullName: true, phone: true },
+          select: { id: true, fullName: true, phoneNumber: true },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -239,16 +239,14 @@ export class ComplianceService {
     return {
       reportType: 'CURRENCY_TRANSACTION_REPORT',
       period: { from, to },
-      threshold: `${threshold.toLocaleString()} XOF`,
+      threshold: `${Number(threshold).toLocaleString()} XOF`,
       transactionCount: transactions.length,
       transactions: transactions.map((t) => ({
         id: t.id,
         userId: t.userId,
         userName: t.user.fullName,
         type: t.type,
-        amount: t.amount,
-        currency: t.currency,
-        provider: t.provider,
+        amountFcfa: t.amountFcfa,
         date: t.createdAt,
       })),
       generatedAt: new Date().toISOString(),

@@ -53,7 +53,7 @@ export class InvestmentsController {
     @Query('portfolioId') portfolioId?: string,
     @Query('page') page = 1,
     @Query('limit') limit = 20,
-  ) {
+  ): Promise<any> {
     return this.investmentsService.getTrades(req.user?.id, { portfolioId, page, limit });
   }
 
@@ -65,7 +65,7 @@ export class InvestmentsController {
   @ApiParam({ name: 'id', description: 'Trade UUID' })
   @ApiOkResponse({ description: 'Trade details returned' })
   @ApiNotFoundResponse({ description: 'Trade not found' })
-  async getTrade(@Request() req: any, @Param('id') id: string) {
+  async getTrade(@Request() req: any, @Param('id') id: string): Promise<any> {
     return this.investmentsService.getTrade(req.user?.id, id);
   }
 
@@ -79,7 +79,7 @@ export class InvestmentsController {
   async getHoldings(
     @Request() req: any,
     @Query('portfolioId') portfolioId?: string,
-  ) {
+  ): Promise<any> {
     return this.investmentsService.getHoldings(req.user?.id, portfolioId);
   }
 
@@ -94,7 +94,7 @@ export class InvestmentsController {
     @Request() req: any,
     @Param('assetSymbol') assetSymbol: string,
     @Query('portfolioId') portfolioId?: string,
-  ) {
+  ): Promise<any> {
     return this.investmentsService.getHolding(req.user?.id, assetSymbol, portfolioId);
   }
 

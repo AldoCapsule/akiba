@@ -82,6 +82,38 @@ model User {
   @@map("users")
 }
 
+// OTP codes for phone verification
+model OtpCode {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  phone     String   @db.VarChar(20)
+  code      String   @db.VarChar(6)
+  purpose   String   @default("registration") @db.VarChar(30) // 'registration', 'login', 'pin_reset'
+  attempts  Int      @default(0)
+  isUsed    Boolean  @default(false) @map("is_used")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([phone, purpose, isUsed])
+  @@index([expiresAt])
+  @@map("otp_codes")
+}
+
+// Refresh tokens for JWT rotation
+model RefreshToken {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  tokenHash   String    @unique @map("token_hash") @db.VarChar(255)
+  deviceId    String?   @map("device_id") @db.VarChar(255)
+  isRevoked   Boolean   @default(false) @map("is_revoked")
+  expiresAt   DateTime  @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
 model UserDevice {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId      String   @map("user_id") @db.Uuid

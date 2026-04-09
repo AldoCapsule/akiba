@@ -11,13 +11,8 @@ interface SendNotificationDto {
   userId: string;
   title: string;
   body: string;
-  channel: 'PUSH' | 'SMS' | 'IN_APP' | 'EMAIL';
+  channel: 'push' | 'sms' | 'in_app' | 'email';
   data?: Record<string, any>;
-}
-
-interface RegisterDeviceDto {
-  token: string;
-  platform: 'IOS' | 'ANDROID';
 }
 
 @Injectable()
@@ -26,14 +21,14 @@ export class NotificationsService {
 
   constructor(private readonly db: DatabaseService) {}
 
-  async list(userId: string, query: ListQuery) {
+  async list(userId: string, query: ListQuery): Promise<any> {
     const { page, limit, unreadOnly } = query;
     const skip = (page - 1) * Math.min(limit, 100);
     const take = Math.min(limit, 100);
 
     const where: any = { userId };
     if (unreadOnly) {
-      where.readAt = null;
+      where.isRead = false;
     }
 
     const [notifications, total] = await Promise.all([
@@ -44,9 +39,10 @@ export class NotificationsService {
         take,
         select: {
           id: true,
-          title: true,
-          body: true,
+          titleFr: true,
+          bodyFr: true,
           channel: true,
+          isRead: true,
           readAt: true,
           data: true,
           createdAt: true,
@@ -58,7 +54,8 @@ export class NotificationsService {
     return {
       data: notifications.map((n) => ({
         ...n,
-        isRead: !!n.readAt,
+        title: n.titleFr,
+        body: n.bodyFr,
       })),
       pagination: { page, limit: take, total, totalPages: Math.ceil(total / take) },
     };
@@ -66,7 +63,7 @@ export class NotificationsService {
 
   async getUnreadCount(userId: string) {
     const count = await this.db.notification.count({
-      where: { userId, readAt: null },
+      where: { userId, isRead: false },
     });
 
     return { unreadCount: count };
@@ -83,7 +80,7 @@ export class NotificationsService {
 
     await this.db.notification.update({
       where: { id: notificationId },
-      data: { readAt: new Date() },
+      data: { isRead: true, readAt: new Date() },
     });
 
     return { message: 'Notification marked as read' };
@@ -91,8 +88,8 @@ export class NotificationsService {
 
   async markAllAsRead(userId: string) {
     const result = await this.db.notification.updateMany({
-      where: { userId, readAt: null },
-      data: { readAt: new Date() },
+      where: { userId, isRead: false },
+      data: { isRead: true, readAt: new Date() },
     });
 
     return {
@@ -104,36 +101,36 @@ export class NotificationsService {
   async send(dto: SendNotificationDto) {
     // TODO: Validate target user exists
     // TODO: Based on channel, dispatch to appropriate service:
-    //   - PUSH: Send via FCM/APNs
-    //   - SMS: Send via SMS gateway (Orange, Twilio)
-    //   - EMAIL: Send via email provider (SendGrid, SES)
-    //   - IN_APP: Store in database (always done)
+    //   - push: Send via FCM/APNs
+    //   - sms: Send via SMS gateway (Orange, Twilio)
+    //   - email: Send via email provider (SendGrid, SES)
+    //   - in_app: Store in database (always done)
 
     const notification = await this.db.notification.create({
       data: {
         userId: dto.userId,
-        title: dto.title,
-        body: dto.body,
+        titleFr: dto.title,
+        bodyFr: dto.body,
         channel: dto.channel,
-        data: dto.data ? JSON.stringify(dto.data) : null,
+        data: dto.data ? (dto.data as any) : undefined,
       },
     });
 
     // TODO: Dispatch to external channel
     switch (dto.channel) {
-      case 'PUSH':
+      case 'push':
         // TODO: Fetch device tokens for user, send via FCM
         this.logger.log(`Push notification queued for user ${dto.userId}`);
         break;
-      case 'SMS':
+      case 'sms':
         // TODO: Send SMS via provider
         this.logger.log(`SMS notification queued for user ${dto.userId}`);
         break;
-      case 'EMAIL':
+      case 'email':
         // TODO: Send email via provider
         this.logger.log(`Email notification queued for user ${dto.userId}`);
         break;
-      case 'IN_APP':
+      case 'in_app':
         this.logger.log(`In-app notification created for user ${dto.userId}`);
         break;
     }
@@ -145,22 +142,25 @@ export class NotificationsService {
     };
   }
 
-  async registerDevice(userId: string, dto: RegisterDeviceDto) {
-    // TODO: Upsert device token (replace old token for same device)
+  async registerDevice(userId: string, dto: { token: string; platform: string }) {
+    // TODO: Upsert device token using UserDevice model
     // TODO: Subscribe to relevant FCM topics
 
-    await this.db.deviceToken.upsert({
+    await this.db.userDevice.upsert({
       where: {
-        userId_platform: { userId, platform: dto.platform },
+        userId_deviceId: { userId, deviceId: dto.token },
       },
       create: {
         userId,
-        token: dto.token,
+        deviceId: dto.token,
         platform: dto.platform,
+        pushToken: dto.token,
+        isActive: true,
       },
       update: {
-        token: dto.token,
-        updatedAt: new Date(),
+        pushToken: dto.token,
+        isActive: true,
+        lastLoginAt: new Date(),
       },
     });
 

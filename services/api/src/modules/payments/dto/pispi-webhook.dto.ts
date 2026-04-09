@@ -16,7 +16,7 @@ export class PispiWebhookDto {
   })
   @IsString()
   @IsNotEmpty()
-  transactionId: string;
+  transactionId!: string;
 
   @ApiProperty({
     description: 'Internal reference ID (mapped during initiation)',
@@ -24,7 +24,7 @@ export class PispiWebhookDto {
   })
   @IsString()
   @IsNotEmpty()
-  referenceId: string;
+  referenceId!: string;
 
   @ApiProperty({
     description: 'Webhook event type',
@@ -32,14 +32,14 @@ export class PispiWebhookDto {
     example: WebhookEventType.PAYMENT_SUCCESS,
   })
   @IsEnum(WebhookEventType)
-  eventType: WebhookEventType;
+  eventType!: WebhookEventType;
 
   @ApiProperty({
     description: 'Transaction amount in CFA francs',
     example: 25000,
   })
   @IsNumber()
-  amount: number;
+  amount!: number;
 
   @ApiProperty({
     description: 'Currency code',
@@ -47,7 +47,7 @@ export class PispiWebhookDto {
   })
   @IsString()
   @IsNotEmpty()
-  currency: string;
+  currency!: string;
 
   @ApiProperty({
     description: 'Provider-specific status code',
@@ -73,5 +73,5 @@ export class PispiWebhookDto {
   })
   @IsString()
   @IsNotEmpty()
-  signature: string;
+  signature!: string;
 }

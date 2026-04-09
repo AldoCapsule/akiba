@@ -60,7 +60,7 @@ export class PortfoliosController {
   @ApiParam({ name: 'id', description: 'Portfolio UUID' })
   @ApiOkResponse({ description: 'Portfolio details returned' })
   @ApiNotFoundResponse({ description: 'Portfolio not found' })
-  async findOne(@Request() req: any, @Param('id') id: string) {
+  async findOne(@Request() req: any, @Param('id') id: string): Promise<any> {
     return this.portfoliosService.findOne(req.user?.id, id);
   }
 

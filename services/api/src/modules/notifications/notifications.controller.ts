@@ -41,7 +41,7 @@ export class NotificationsController {
     @Query('page') page = 1,
     @Query('limit') limit = 20,
     @Query('unreadOnly') unreadOnly = false,
-  ) {
+  ): Promise<any> {
     return this.notificationsService.list(req.user?.id, { page, limit, unreadOnly });
   }
 
@@ -91,7 +91,7 @@ export class NotificationsController {
       userId: string;
       title: string;
       body: string;
-      channel: 'PUSH' | 'SMS' | 'IN_APP' | 'EMAIL';
+      channel: 'push' | 'sms' | 'in_app' | 'email';
       data?: Record<string, any>;
     },
   ) {

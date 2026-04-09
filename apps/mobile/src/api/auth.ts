@@ -1,21 +1,29 @@
 import { apiClient, ApiResponse, setTokens, clearTokens } from './client';
 
-/** Request / response types */
+// ─── Types matching our NestJS backend ───────────────────────────
+
 export interface RegisterRequest {
   phone: string;
-  locale?: string;
+  fullName: string;
+  email?: string;
+  language?: 'fr' | 'wo' | 'en';
+  referralCode?: string;
 }
 
 export interface RegisterResponse {
+  message: string;
   userId: string;
-  otpSent: boolean;
-  /** OTP expiry in seconds */
   expiresIn: number;
 }
 
 export interface VerifyOtpRequest {
   phone: string;
-  otp: string;
+  code: string;
+}
+
+export interface LoginRequest {
+  phone: string;
+  pin: string;
 }
 
 export interface AuthTokens {
@@ -24,97 +32,120 @@ export interface AuthTokens {
   expiresIn: number;
 }
 
-export interface UserProfile {
+export interface UserData {
   id: string;
-  phone: string;
-  fullName?: string;
-  email?: string;
-  kycTier: 0 | 1 | 2 | 3;
-  kycStatus: 'none' | 'pending' | 'verified' | 'rejected';
-  riskProfile?: 'conservative' | 'moderate' | 'balanced' | 'growth' | 'aggressive';
-  locale: string;
-  createdAt: string;
-}
-
-export interface KycSubmission {
+  phoneNumber: string;
   fullName: string;
-  dateOfBirth: string;
-  idNumber?: string;
-  /** Base64-encoded ID photo, or presigned URL */
-  idPhotoUri?: string;
-  incomeProofUri?: string;
-  tier: 1 | 2 | 3;
+  kycStatus: 'pending' | 'submitted' | 'verified' | 'rejected';
+  kycTier: 'tier_0' | 'tier_1' | 'tier_2' | 'tier_3';
+  riskProfile?: 'conservative' | 'balanced' | 'aggressive';
+  isHalalOnly: boolean;
+  preferredLanguage: 'fr' | 'wo' | 'en';
 }
 
-export interface RiskAnswer {
-  questionId: number;
-  answerId: number;
+export interface AuthResponse extends AuthTokens {
+  user: UserData;
+}
+
+export interface SetPinRequest {
+  pin: string;
+  pinConfirmation: string;
+}
+
+export interface KycSubmitRequest {
+  documentFrontKey: string;
+  documentBackKey?: string;
+  selfieKey: string;
+  nationalIdNumber?: string;
+}
+
+export interface RiskAssessmentRequest {
+  incomeRange: 'BELOW_100K' | 'FROM_100K_TO_300K' | 'FROM_300K_TO_1M' | 'ABOVE_1M';
+  investmentHorizon: 'SHORT_TERM' | 'MEDIUM_TERM' | 'LONG_TERM';
+  investmentExperience: 'NONE' | 'BEGINNER' | 'INTERMEDIATE' | 'ADVANCED';
+  riskTolerance: number;
+  maxAcceptableLoss: number;
 }
 
 export interface RiskAssessmentResult {
-  profile: 'conservative' | 'moderate' | 'balanced' | 'growth' | 'aggressive';
   score: number;
+  riskProfile: string;
+  description: string;
 }
 
-/** API calls */
+// ─── API Calls ───────────────────────────────────────────────────
 
-export async function register(data: RegisterRequest): Promise<ApiResponse<RegisterResponse>> {
-  const response = await apiClient.post<ApiResponse<RegisterResponse>>('/auth/register', data);
-  return response.data;
+export async function register(data: RegisterRequest): Promise<RegisterResponse> {
+  const res = await apiClient.post<ApiResponse<RegisterResponse>>('/auth/register', data);
+  return res.data.data;
 }
 
-export async function verifyOtp(data: VerifyOtpRequest): Promise<ApiResponse<AuthTokens>> {
-  const response = await apiClient.post<ApiResponse<AuthTokens>>('/auth/verify-otp', data);
-  const { accessToken, refreshToken } = response.data.data;
+export async function verifyOtp(data: VerifyOtpRequest): Promise<AuthResponse> {
+  const res = await apiClient.post<ApiResponse<AuthResponse>>('/auth/verify-otp', data);
+  const { accessToken, refreshToken } = res.data.data;
   await setTokens(accessToken, refreshToken);
-  return response.data;
+  return res.data.data;
 }
 
-export async function resendOtp(phone: string): Promise<ApiResponse<{ expiresIn: number }>> {
-  const response = await apiClient.post<ApiResponse<{ expiresIn: number }>>('/auth/resend-otp', {
-    phone,
-  });
-  return response.data;
-}
-
-export async function loginWithBiometrics(): Promise<ApiResponse<AuthTokens>> {
-  const response = await apiClient.post<ApiResponse<AuthTokens>>('/auth/biometric-login');
-  const { accessToken, refreshToken } = response.data.data;
+export async function login(data: LoginRequest): Promise<AuthResponse> {
+  const res = await apiClient.post<ApiResponse<AuthResponse>>('/auth/login', data);
+  const { accessToken, refreshToken } = res.data.data;
   await setTokens(accessToken, refreshToken);
-  return response.data;
+  return res.data.data;
 }
 
-export async function getProfile(): Promise<ApiResponse<UserProfile>> {
-  const response = await apiClient.get<ApiResponse<UserProfile>>('/auth/profile');
-  return response.data;
+export async function requestOtp(phone: string): Promise<{ message: string; expiresIn: number }> {
+  const res = await apiClient.post<ApiResponse<{ message: string; expiresIn: number }>>(
+    '/auth/request-otp',
+    { phone },
+  );
+  return res.data.data;
+}
+
+export async function setPin(data: SetPinRequest): Promise<{ message: string }> {
+  const res = await apiClient.post<ApiResponse<{ message: string }>>('/auth/set-pin', data);
+  return res.data.data;
+}
+
+// ─── User / KYC / Risk ──────────────────────────────────────────
+
+export async function getProfile(): Promise<UserData & { wallets: any[] }> {
+  const res = await apiClient.get<ApiResponse<UserData & { wallets: any[] }>>('/users/me');
+  return res.data.data;
 }
 
 export async function updateProfile(
-  data: Partial<Pick<UserProfile, 'fullName' | 'email' | 'locale'>>,
-): Promise<ApiResponse<UserProfile>> {
-  const response = await apiClient.patch<ApiResponse<UserProfile>>('/auth/profile', data);
-  return response.data;
+  data: Partial<{ fullName: string; email: string; preferredLanguage: string; isHalalOnly: boolean }>,
+) {
+  const res = await apiClient.patch('/users/me', data);
+  return res.data.data;
 }
 
-export async function submitKyc(data: KycSubmission): Promise<ApiResponse<{ kycStatus: string }>> {
-  const response = await apiClient.post<ApiResponse<{ kycStatus: string }>>('/auth/kyc', data);
-  return response.data;
+export async function submitKyc(data: KycSubmitRequest) {
+  const res = await apiClient.post('/users/me/kyc', data);
+  return res.data.data;
+}
+
+export async function getKycStatus() {
+  const res = await apiClient.get('/users/me/kyc');
+  return res.data.data;
 }
 
 export async function submitRiskAssessment(
-  answers: RiskAnswer[],
-): Promise<ApiResponse<RiskAssessmentResult>> {
-  const response = await apiClient.post<ApiResponse<RiskAssessmentResult>>(
-    '/auth/risk-assessment',
-    { answers },
+  data: RiskAssessmentRequest,
+): Promise<RiskAssessmentResult> {
+  const res = await apiClient.post<ApiResponse<RiskAssessmentResult>>(
+    '/users/me/risk-assessment',
+    data,
   );
-  return response.data;
+  return res.data.data;
+}
+
+export async function getRiskProfile() {
+  const res = await apiClient.get('/users/me/risk-assessment');
+  return res.data.data;
 }
 
 export async function logout(): Promise<void> {
-  try {
-    await apiClient.post('/auth/logout');
-  } finally {
-    await clearTokens();
-  }
+  await clearTokens();
 }

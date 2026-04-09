@@ -4,15 +4,11 @@ import * as authApi from '../api/auth';
 import { getAccessToken, clearTokens } from '../api/client';
 import { normalizePhone } from '../utils/validation';
 
-/**
- * Auth hook that bridges Zustand store with React Query mutations.
- * Provides auth actions and current auth state.
- */
 export function useAuth() {
   const queryClient = useQueryClient();
   const store = useAuthStore();
 
-  /** Check if user has a valid session on app load */
+  // Check for existing session on app load
   const sessionCheck = useQuery({
     queryKey: ['auth', 'session'],
     queryFn: async () => {
@@ -22,9 +18,8 @@ export function useAuth() {
         store.setReady(true);
         return null;
       }
-
       try {
-        const { data: user } = await authApi.getProfile();
+        const user = await authApi.getProfile();
         store.setUser(user);
         store.setAuthenticated(true);
         return user;
@@ -40,39 +35,61 @@ export function useAuth() {
     staleTime: Infinity,
   });
 
-  /** Register with phone number */
+  // Register → sends OTP
   const registerMutation = useMutation({
-    mutationFn: (phone: string) =>
-      authApi.register({ phone: normalizePhone(phone), locale: store.locale }),
-    onSuccess: (_data, phone) => {
-      store.setPendingPhone(normalizePhone(phone));
+    mutationFn: (data: { phone: string; fullName: string; language?: 'fr' | 'wo' | 'en'; referralCode?: string }) =>
+      authApi.register({
+        phone: normalizePhone(data.phone),
+        fullName: data.fullName,
+        language: data.language || (store.locale as any),
+        referralCode: data.referralCode,
+      }),
+    onSuccess: (_data, variables) => {
+      store.setPendingPhone(normalizePhone(variables.phone));
     },
   });
 
-  /** Verify OTP */
+  // Verify OTP → get tokens + user
   const verifyOtpMutation = useMutation({
-    mutationFn: (otp: string) => {
+    mutationFn: (code: string) => {
       if (!store.pendingPhone) throw new Error('No pending phone');
-      return authApi.verifyOtp({ phone: store.pendingPhone, otp });
+      return authApi.verifyOtp({ phone: store.pendingPhone, code });
     },
-    onSuccess: async () => {
-      const { data: user } = await authApi.getProfile();
-      store.setUser(user);
+    onSuccess: (data) => {
+      store.setUser(data.user);
       store.setAuthenticated(true);
       store.setPendingPhone(null);
+      // New users need to set PIN
+      store.setNeedsPin(true);
       queryClient.invalidateQueries({ queryKey: ['auth'] });
     },
   });
 
-  /** Resend OTP */
-  const resendOtpMutation = useMutation({
-    mutationFn: () => {
-      if (!store.pendingPhone) throw new Error('No pending phone');
-      return authApi.resendOtp(store.pendingPhone);
+  // Login with PIN
+  const loginMutation = useMutation({
+    mutationFn: (data: { phone: string; pin: string }) =>
+      authApi.login({ phone: normalizePhone(data.phone), pin: data.pin }),
+    onSuccess: (data) => {
+      store.setUser(data.user);
+      store.setAuthenticated(true);
+      queryClient.invalidateQueries({ queryKey: ['auth'] });
     },
   });
 
-  /** Submit KYC documents */
+  // Set PIN
+  const setPinMutation = useMutation({
+    mutationFn: (pin: string) => authApi.setPin({ pin, pinConfirmation: pin }),
+    onSuccess: () => {
+      store.setNeedsPin(false);
+    },
+  });
+
+  // Request new OTP (for login)
+  const requestOtpMutation = useMutation({
+    mutationFn: (phone: string) => authApi.requestOtp(normalizePhone(phone)),
+  });
+
+  // Submit KYC documents
   const submitKycMutation = useMutation({
     mutationFn: authApi.submitKyc,
     onSuccess: () => {
@@ -80,7 +97,7 @@ export function useAuth() {
     },
   });
 
-  /** Submit risk assessment */
+  // Submit risk assessment
   const submitRiskMutation = useMutation({
     mutationFn: authApi.submitRiskAssessment,
     onSuccess: () => {
@@ -88,7 +105,7 @@ export function useAuth() {
     },
   });
 
-  /** Logout */
+  // Logout
   const logoutMutation = useMutation({
     mutationFn: authApi.logout,
     onSuccess: () => {
@@ -98,7 +115,7 @@ export function useAuth() {
   });
 
   return {
-    /** State */
+    // State
     isAuthenticated: store.isAuthenticated,
     isReady: store.isReady,
     user: store.user,
@@ -106,11 +123,10 @@ export function useAuth() {
     locale: store.locale,
     t: store.t,
     hasSeenOnboarding: store.hasSeenOnboarding,
-
-    /** Session */
+    needsPin: store.needsPin,
     isLoadingSession: sessionCheck.isLoading,
 
-    /** Actions */
+    // Auth actions
     register: registerMutation.mutateAsync,
     isRegistering: registerMutation.isPending,
     registerError: registerMutation.error,
@@ -119,8 +135,15 @@ export function useAuth() {
     isVerifyingOtp: verifyOtpMutation.isPending,
     verifyOtpError: verifyOtpMutation.error,
 
-    resendOtp: resendOtpMutation.mutateAsync,
-    isResendingOtp: resendOtpMutation.isPending,
+    login: loginMutation.mutateAsync,
+    isLoggingIn: loginMutation.isPending,
+    loginError: loginMutation.error,
+
+    setPin: setPinMutation.mutateAsync,
+    isSettingPin: setPinMutation.isPending,
+
+    requestOtp: requestOtpMutation.mutateAsync,
+    isRequestingOtp: requestOtpMutation.isPending,
 
     submitKyc: submitKycMutation.mutateAsync,
     isSubmittingKyc: submitKycMutation.isPending,

@@ -109,7 +109,7 @@ export class ComplianceController {
     @Query('to') to?: string,
     @Query('page') page = 1,
     @Query('limit') limit = 50,
-  ) {
+  ): Promise<any> {
     return this.complianceService.getAuditLogs({ userId, action, from, to, page, limit });
   }
 
@@ -124,8 +124,8 @@ export class ComplianceController {
     dto: {
       userId?: string;
       action: string;
-      resource: string;
-      resourceId?: string;
+      entityType: string;
+      entityId?: string;
       details?: Record<string, any>;
       ipAddress?: string;
     },

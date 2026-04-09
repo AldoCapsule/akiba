@@ -29,16 +29,23 @@ export class PaymentsService {
     // TODO: Create transaction record with PENDING status
     // TODO: Return provider redirect URL or USSD prompt reference
 
+    // Find user's cash wallet
+    const wallet = await this.db.wallet.findFirst({
+      where: { userId, walletType: 'cash' },
+    });
+
+    if (!wallet) {
+      throw new NotFoundException('Cash wallet not found for user');
+    }
+
     const transaction = await this.db.transaction.create({
       data: {
         userId,
-        type: 'DEPOSIT',
-        amount: dto.amount,
-        currency: 'XOF',
-        provider: dto.provider,
-        sourceAccount: dto.sourceAccount,
-        note: dto.note,
-        status: 'PENDING',
+        walletId: wallet.id,
+        type: 'deposit',
+        amountFcfa: BigInt(dto.amount),
+        description: dto.note,
+        status: 'pending',
       },
     });
 
@@ -48,7 +55,7 @@ export class PaymentsService {
 
     return {
       transactionId: transaction.id,
-      status: 'PENDING',
+      status: 'pending',
       amount: dto.amount,
       currency: 'XOF',
       provider: dto.provider,
@@ -66,7 +73,7 @@ export class PaymentsService {
 
     const balance = await this.getUserBalance(userId);
 
-    if (balance < dto.amount) {
+    if (balance < BigInt(dto.amount)) {
       throw new BadRequestException(
         `Insufficient balance. Available: ${balance} XOF, requested: ${dto.amount} XOF`,
       );
@@ -78,16 +85,23 @@ export class PaymentsService {
     //   throw new ForbiddenException('Invalid PIN');
     // }
 
+    // Find user's cash wallet
+    const wallet = await this.db.wallet.findFirst({
+      where: { userId, walletType: 'cash' },
+    });
+
+    if (!wallet) {
+      throw new NotFoundException('Cash wallet not found for user');
+    }
+
     const transaction = await this.db.transaction.create({
       data: {
         userId,
-        type: 'WITHDRAWAL',
-        amount: dto.amount,
-        currency: 'XOF',
-        provider: dto.provider,
-        destinationAccount: dto.destinationAccount,
-        note: dto.note,
-        status: 'PENDING',
+        walletId: wallet.id,
+        type: 'withdrawal',
+        amountFcfa: BigInt(dto.amount),
+        description: dto.note,
+        status: 'pending',
       },
     });
 
@@ -97,7 +111,7 @@ export class PaymentsService {
 
     return {
       transactionId: transaction.id,
-      status: 'PENDING',
+      status: 'pending',
       amount: dto.amount,
       currency: 'XOF',
       provider: dto.provider,
@@ -130,18 +144,16 @@ export class PaymentsService {
 
     const newStatus =
       dto.eventType === 'PAYMENT_SUCCESS'
-        ? 'COMPLETED'
+        ? 'completed'
         : dto.eventType === 'PAYMENT_FAILED'
-          ? 'FAILED'
-          : 'PENDING';
+          ? 'failed'
+          : 'pending';
 
     await this.db.transaction.update({
       where: { id: transaction.id },
       data: {
-        status: newStatus,
-        providerTransactionId: dto.transactionId,
-        providerStatusCode: dto.statusCode,
-        updatedAt: new Date(),
+        status: newStatus as any,
+        piSpiReference: dto.transactionId,
       },
     });
 
@@ -174,11 +186,10 @@ export class PaymentsService {
         select: {
           id: true,
           type: true,
-          amount: true,
-          currency: true,
-          provider: true,
+          amountFcfa: true,
+          feeFcfa: true,
           status: true,
-          note: true,
+          description: true,
           createdAt: true,
         },
       }),
@@ -196,7 +207,7 @@ export class PaymentsService {
     };
   }
 
-  async getTransaction(userId: string, transactionId: string) {
+  async getTransaction(userId: string, transactionId: string): Promise<any> {
     const transaction = await this.db.transaction.findFirst({
       where: { id: transactionId, userId },
     });
@@ -218,22 +229,22 @@ export class PaymentsService {
     };
   }
 
-  private async getUserBalance(userId: string): Promise<number> {
+  private async getUserBalance(userId: string): Promise<bigint> {
     // TODO: Compute balance from completed deposits minus withdrawals and investments
     // TODO: Consider using a materialized balance field on the user/wallet table for performance
 
     const deposits = await this.db.transaction.aggregate({
-      where: { userId, type: 'DEPOSIT', status: 'COMPLETED' },
-      _sum: { amount: true },
+      where: { userId, type: 'deposit', status: 'completed' },
+      _sum: { amountFcfa: true },
     });
 
     const withdrawals = await this.db.transaction.aggregate({
-      where: { userId, type: 'WITHDRAWAL', status: 'COMPLETED' },
-      _sum: { amount: true },
+      where: { userId, type: 'withdrawal', status: 'completed' },
+      _sum: { amountFcfa: true },
     });
 
-    const totalDeposits = deposits._sum.amount || 0;
-    const totalWithdrawals = withdrawals._sum.amount || 0;
+    const totalDeposits = deposits._sum?.amountFcfa || BigInt(0);
+    const totalWithdrawals = withdrawals._sum?.amountFcfa || BigInt(0);
 
     return totalDeposits - totalWithdrawals;
   }

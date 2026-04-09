@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { SubmitKycDto } from './dto/submit-kyc.dto';
@@ -15,220 +15,284 @@ export class UsersService {
       where: { id: userId },
       select: {
         id: true,
-        phone: true,
+        phoneNumber: true,
         fullName: true,
         email: true,
         dateOfBirth: true,
-        address: true,
-        city: true,
-        country: true,
-        language: true,
-        status: true,
+        nationalIdNumber: true,
         kycStatus: true,
+        kycTier: true,
         riskProfile: true,
+        isHalalOnly: true,
+        preferredLanguage: true,
+        referralCode: true,
         createdAt: true,
+        updatedAt: true,
+        wallets: {
+          select: {
+            id: true,
+            walletType: true,
+            balanceFcfa: true,
+            currency: true,
+          },
+        },
+      },
+    });
+
+    if (!user) throw new NotFoundException('User not found');
+
+    return { success: true, data: user };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.db.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    // If KYC is verified, prevent changing name/DOB
+    if (user.kycStatus === 'verified' && (dto.fullName || dto.dateOfBirth)) {
+      throw new BadRequestException(
+        'Cannot change name or date of birth after KYC verification. Contact support.',
+      );
+    }
+
+    const updated = await this.db.user.update({
+      where: { id: userId },
+      data: {
+        ...(dto.fullName && { fullName: dto.fullName }),
+        ...(dto.email && { email: dto.email }),
+        ...(dto.dateOfBirth && { dateOfBirth: new Date(dto.dateOfBirth) }),
+        ...(dto.preferredLanguage && { preferredLanguage: dto.preferredLanguage as any }),
+        ...(dto.isHalalOnly !== undefined && { isHalalOnly: dto.isHalalOnly }),
+      },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        preferredLanguage: true,
+        isHalalOnly: true,
         updatedAt: true,
       },
     });
 
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    return user;
+    return { success: true, data: updated };
   }
 
-  async updateProfile(userId: string, dto: UpdateProfileDto) {
-    // TODO: Validate that certain fields cannot change after KYC approval (e.g. fullName, dateOfBirth)
-
-    const user = await this.db.user.update({
-      where: { id: userId },
-      data: {
-        ...dto,
-        updatedAt: new Date(),
-      },
-    });
-
-    this.logger.log(`Profile updated for user ${userId}`);
-
-    return {
-      message: 'Profile updated successfully',
-      user: {
-        id: user.id,
-        fullName: user.fullName,
-        email: user.email,
-        language: user.language,
-      },
-    };
-  }
+  // ─── KYC ──────────────────────────────────────────────────────────
 
   async submitKyc(userId: string, dto: SubmitKycDto) {
-    // TODO: Validate document images are accessible
-    // TODO: Submit to third-party KYC provider (e.g. Smile Identity, Onfido)
-    // TODO: Create KYC record with PENDING status
-    // TODO: Trigger compliance team notification
+    const user = await this.db.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
 
-    const kyc = await this.db.kycSubmission.create({
+    if (user.kycStatus === 'verified') {
+      throw new BadRequestException('KYC already verified');
+    }
+
+    // Create KYC document records
+    const docs = [];
+    docs.push({ userId, documentType: 'national_id_front', s3Key: dto.documentFrontKey });
+    if (dto.documentBackKey) {
+      docs.push({ userId, documentType: 'national_id_back', s3Key: dto.documentBackKey });
+    }
+    docs.push({ userId, documentType: 'selfie', s3Key: dto.selfieKey });
+
+    await this.db.kycDocument.createMany({ data: docs });
+
+    // Update user
+    await this.db.user.update({
+      where: { id: userId },
       data: {
-        userId,
-        documentType: dto.documentType,
-        documentNumber: dto.documentNumber,
-        documentExpiry: new Date(dto.documentExpiry),
-        documentFrontUrl: dto.documentFrontUrl,
-        documentBackUrl: dto.documentBackUrl,
-        selfieUrl: dto.selfieUrl,
-        legalName: dto.legalName,
-        dateOfBirth: new Date(dto.dateOfBirth),
-        nationality: dto.nationality,
-        status: 'PENDING',
+        kycStatus: 'submitted',
+        ...(dto.nationalIdNumber && { nationalIdNumber: dto.nationalIdNumber }),
       },
     });
 
-    await this.db.user.update({
-      where: { id: userId },
-      data: { kycStatus: 'PENDING' },
+    // TODO: Trigger Smile ID verification via background job
+    // await this.smileIdService.verifyIdentity(userId, docs);
+
+    await this.db.auditLog.create({
+      data: { userId, action: 'kyc_submitted', entityType: 'user', entityId: userId },
     });
 
     this.logger.log(`KYC submitted for user ${userId}`);
 
     return {
-      message: 'KYC documents submitted for review',
-      submissionId: kyc.id,
-      status: 'PENDING',
-      estimatedReviewTime: '24 hours',
+      success: true,
+      data: {
+        message: 'KYC documents submitted for review',
+        status: 'submitted',
+        estimatedReviewTime: '24 hours',
+      },
     };
   }
 
   async getKycStatus(userId: string) {
-    const submission = await this.db.kycSubmission.findFirst({
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { kycStatus: true, kycTier: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const documents = await this.db.kycDocument.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' },
       select: {
         id: true,
-        status: true,
         documentType: true,
-        rejectionReason: true,
+        status: true,
+        reviewNotes: true,
         createdAt: true,
-        reviewedAt: true,
+        updatedAt: true,
       },
+      orderBy: { createdAt: 'desc' },
     });
 
     return {
-      hasSubmission: !!submission,
-      submission,
+      success: true,
+      data: {
+        kycStatus: user.kycStatus,
+        kycTier: user.kycTier,
+        documents,
+      },
     };
   }
 
+  // ─── Risk Assessment ──────────────────────────────────────────────
+
   async submitRiskAssessment(userId: string, dto: RiskAssessmentDto) {
-    // TODO: Run risk scoring algorithm
-    // TODO: Map score to risk profile category (CONSERVATIVE, MODERATE, AGGRESSIVE)
-    // TODO: Store assessment answers and computed profile
+    const user = await this.db.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
 
     const score = this.calculateRiskScore(dto);
     const profile = this.mapScoreToProfile(score);
 
-    await this.db.riskAssessment.create({
+    // Store assessment as audit log with full answers
+    await this.db.auditLog.create({
       data: {
         userId,
-        incomeRange: dto.incomeRange,
-        investmentHorizon: dto.investmentHorizon,
-        investmentExperience: dto.investmentExperience,
-        riskTolerance: dto.riskTolerance,
-        maxAcceptableLoss: dto.maxAcceptableLoss,
-        computedScore: score,
-        riskProfile: profile,
+        action: 'risk_assessment_completed',
+        entityType: 'user',
+        entityId: userId,
+        details: {
+          answers: { ...dto },
+          computedScore: score,
+          riskProfile: profile,
+        },
       },
     });
 
     await this.db.user.update({
       where: { id: userId },
-      data: { riskProfile: profile },
+      data: { riskProfile: profile as any },
     });
 
-    this.logger.log(`Risk assessment completed for user ${userId}: ${profile}`);
+    this.logger.log(`Risk assessment: user ${userId} → ${profile} (score: ${score})`);
 
     return {
-      score,
-      riskProfile: profile,
-      message: `Your risk profile has been set to ${profile}`,
+      success: true,
+      data: {
+        score,
+        riskProfile: profile,
+        description: this.getProfileDescription(profile),
+      },
     };
   }
 
   async getRiskProfile(userId: string) {
-    const assessment = await this.db.riskAssessment.findFirst({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
+    const user = await this.db.user.findUnique({
+      where: { id: userId },
+      select: { riskProfile: true },
     });
+    if (!user) throw new NotFoundException('User not found');
 
-    if (!assessment) {
+    if (!user.riskProfile) {
       return {
-        hasAssessment: false,
-        message: 'No risk assessment found. Please complete the questionnaire.',
+        success: true,
+        data: {
+          hasAssessment: false,
+          message: 'Please complete the risk assessment questionnaire.',
+        },
       };
     }
 
     return {
-      hasAssessment: true,
-      riskProfile: assessment.riskProfile,
-      score: assessment.computedScore,
-      completedAt: assessment.createdAt,
+      success: true,
+      data: {
+        hasAssessment: true,
+        riskProfile: user.riskProfile,
+        description: this.getProfileDescription(user.riskProfile),
+      },
     };
   }
 
-  async getUserById(id: string) {
+  // ─── Admin helpers ────────────────────────────────────────────────
+
+  async getUserById(id: string): Promise<any> {
     const user = await this.db.user.findUnique({
       where: { id },
+      include: {
+        wallets: true,
+        kycDocuments: true,
+        portfolios: { where: { isActive: true } },
+      },
     });
-
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    return user;
+    if (!user) throw new NotFoundException('User not found');
+    return { success: true, data: user };
   }
 
+  // ─── Risk Scoring Algorithm ───────────────────────────────────────
+
   private calculateRiskScore(dto: RiskAssessmentDto): number {
-    // TODO: Implement proper scoring algorithm
     let score = 0;
 
-    // Income range contributes 0-25 points
-    const incomeScores = {
+    // Q1: Income range (0-20 points)
+    const incomeScores: Record<string, number> = {
       BELOW_100K: 5,
       FROM_100K_TO_300K: 10,
-      FROM_300K_TO_1M: 18,
-      ABOVE_1M: 25,
+      FROM_300K_TO_1M: 15,
+      ABOVE_1M: 20,
     };
     score += incomeScores[dto.incomeRange] || 0;
 
-    // Investment horizon contributes 0-25 points
-    const horizonScores = {
+    // Q2: Investment horizon (0-25 points) — longest horizon = most aggressive
+    const horizonScores: Record<string, number> = {
       SHORT_TERM: 5,
       MEDIUM_TERM: 15,
       LONG_TERM: 25,
     };
     score += horizonScores[dto.investmentHorizon] || 0;
 
-    // Experience contributes 0-25 points
-    const experienceScores = {
+    // Q3: Experience (0-20 points)
+    const experienceScores: Record<string, number> = {
       NONE: 3,
-      BEGINNER: 10,
-      INTERMEDIATE: 18,
-      ADVANCED: 25,
+      BEGINNER: 8,
+      INTERMEDIATE: 15,
+      ADVANCED: 20,
     };
     score += experienceScores[dto.investmentExperience] || 0;
 
-    // Risk tolerance and max loss contribute remaining points
-    score += dto.riskTolerance * 1.5;
-    score += dto.maxAcceptableLoss * 0.2;
+    // Q4: Risk tolerance 1-10 → 0-20 points
+    score += dto.riskTolerance * 2;
+
+    // Q5: Max acceptable loss 1-50 → 0-15 points
+    score += Math.min(dto.maxAcceptableLoss * 0.3, 15);
 
     return Math.round(Math.min(score, 100));
   }
 
   private mapScoreToProfile(score: number): string {
-    if (score <= 30) return 'CONSERVATIVE';
-    if (score <= 55) return 'MODERATE_CONSERVATIVE';
-    if (score <= 70) return 'MODERATE';
-    if (score <= 85) return 'MODERATE_AGGRESSIVE';
-    return 'AGGRESSIVE';
+    if (score <= 35) return 'conservative';
+    if (score <= 65) return 'balanced';
+    return 'aggressive';
+  }
+
+  private getProfileDescription(profile: string): string {
+    const descriptions: Record<string, string> = {
+      conservative:
+        'You prefer stable, low-risk investments. Your portfolio will focus on government bonds, Sukuk, and the savings vault.',
+      balanced:
+        'You seek a mix of growth and stability. Your portfolio will blend BRVM equities with bonds and Sukuk.',
+      aggressive:
+        'You are comfortable with higher risk for higher returns. Your portfolio will emphasize BRVM equities with diversified support from bonds.',
+    };
+    return descriptions[profile] || '';
   }
 }

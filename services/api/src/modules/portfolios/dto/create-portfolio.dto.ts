@@ -27,7 +27,7 @@ export class AllocationItemDto {
   @ApiProperty({ description: 'Asset class identifier', example: 'BRVM_EQUITY' })
   @IsString()
   @IsNotEmpty()
-  assetClass: string;
+  assetClass!: string;
 
   @ApiProperty({
     description: 'Target allocation percentage (0-100)',
@@ -36,7 +36,7 @@ export class AllocationItemDto {
   @IsNumber()
   @Min(0)
   @Max(100)
-  targetPercent: number;
+  targetPercent!: number;
 }
 
 export class CreatePortfolioDto {
@@ -47,7 +47,7 @@ export class CreatePortfolioDto {
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
-  name: string;
+  name!: string;
 
   @ApiProperty({
     description: 'Portfolio strategy (uses robo-advisor for non-CUSTOM)',
@@ -55,7 +55,7 @@ export class CreatePortfolioDto {
     example: PortfolioStrategy.MODERATE,
   })
   @IsEnum(PortfolioStrategy)
-  strategy: PortfolioStrategy;
+  strategy!: PortfolioStrategy;
 
   @ApiProperty({
     description: 'Initial investment amount in CFA francs',

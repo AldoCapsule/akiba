@@ -40,6 +40,22 @@ const STRATEGY_ALLOCATIONS: Record<string, { assetClass: string; targetPercent: 
   ],
 };
 
+/** Maps PortfolioStrategy to Prisma PortfolioType */
+function mapStrategyToPortfolioType(strategy: PortfolioStrategy): string {
+  switch (strategy) {
+    case PortfolioStrategy.CONSERVATIVE:
+    case PortfolioStrategy.MODERATE_CONSERVATIVE:
+    case PortfolioStrategy.MODERATE:
+    case PortfolioStrategy.MODERATE_AGGRESSIVE:
+    case PortfolioStrategy.AGGRESSIVE:
+      return 'robo_managed';
+    case PortfolioStrategy.CUSTOM:
+      return 'self_directed';
+    default:
+      return 'robo_managed';
+  }
+}
+
 @Injectable()
 export class PortfoliosService {
   private readonly logger = new Logger(PortfoliosService.name);
@@ -67,14 +83,16 @@ export class PortfoliosService {
       }
     }
 
+    const portfolioType = mapStrategyToPortfolioType(dto.strategy);
+
     const portfolio = await this.db.portfolio.create({
       data: {
         userId,
         name: dto.name,
-        strategy: dto.strategy,
-        description: dto.description,
-        initialAmount: dto.initialAmount || 0,
-        status: 'ACTIVE',
+        portfolioType: portfolioType as any,
+        targetAllocation: allocations as any,
+        totalValueFcfa: BigInt(dto.initialAmount || 0),
+        isActive: true,
       },
     });
 
@@ -86,16 +104,16 @@ export class PortfoliosService {
     return {
       id: portfolio.id,
       name: portfolio.name,
-      strategy: portfolio.strategy,
+      portfolioType: portfolio.portfolioType,
       allocations,
-      status: 'ACTIVE',
+      isActive: portfolio.isActive,
       createdAt: portfolio.createdAt,
     };
   }
 
   async findAll(userId: string) {
     const portfolios = await this.db.portfolio.findMany({
-      where: { userId, status: 'ACTIVE' },
+      where: { userId, isActive: true },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -104,15 +122,15 @@ export class PortfoliosService {
     return portfolios.map((p) => ({
       id: p.id,
       name: p.name,
-      strategy: p.strategy,
-      totalValue: 0, // TODO: Compute from holdings
-      totalReturn: 0, // TODO: Compute gain/loss
+      portfolioType: p.portfolioType,
+      totalValueFcfa: p.totalValueFcfa,
+      totalReturn: BigInt(0), // TODO: Compute gain/loss
       returnPercent: 0,
       createdAt: p.createdAt,
     }));
   }
 
-  async findOne(userId: string, portfolioId: string) {
+  async findOne(userId: string, portfolioId: string): Promise<any> {
     const portfolio = await this.db.portfolio.findFirst({
       where: { id: portfolioId, userId },
     });
@@ -128,8 +146,7 @@ export class PortfoliosService {
     return {
       ...portfolio,
       holdings: [], // TODO: Populate
-      totalValue: 0,
-      totalReturn: 0,
+      totalReturn: BigInt(0),
       returnPercent: 0,
     };
   }
@@ -149,9 +166,8 @@ export class PortfoliosService {
 
     return {
       portfolioId,
-      totalValue: 0,
-      totalInvested: portfolio.initialAmount || 0,
-      totalReturn: 0,
+      totalValueFcfa: portfolio.totalValueFcfa,
+      totalReturn: BigInt(0),
       returnPercent: 0,
       timeSeries: [], // TODO: Array of { date, value } objects
       benchmark: {
@@ -170,7 +186,7 @@ export class PortfoliosService {
       throw new NotFoundException('Portfolio not found');
     }
 
-    const targetAllocations = STRATEGY_ALLOCATIONS[portfolio.strategy] || [];
+    const targetAllocations = (portfolio.targetAllocation as any[]) || [];
 
     // TODO: Compute actual allocations from current holdings
     // TODO: Calculate drift between target and actual
@@ -226,15 +242,12 @@ export class PortfoliosService {
       where: { id: portfolioId },
       data: {
         name: dto.name,
-        description: dto.description,
-        updatedAt: new Date(),
       },
     });
 
     return {
       id: updated.id,
       name: updated.name,
-      description: updated.description,
       message: 'Portfolio updated',
     };
   }
@@ -250,11 +263,11 @@ export class PortfoliosService {
 
     // TODO: Liquidate all holdings (sell all positions)
     // TODO: Credit proceeds to user cash balance
-    // TODO: Mark portfolio as CLOSED instead of deleting
+    // TODO: Mark portfolio as inactive instead of deleting
 
     await this.db.portfolio.update({
       where: { id: portfolioId },
-      data: { status: 'CLOSED', updatedAt: new Date() },
+      data: { isActive: false },
     });
 
     this.logger.log(`Portfolio ${portfolioId} closed for user ${userId}`);

@@ -26,7 +26,7 @@ export class CreateTradeDto {
   })
   @IsString()
   @IsNotEmpty()
-  portfolioId: string;
+  portfolioId!: string;
 
   @ApiProperty({
     description: 'Asset symbol or ID (e.g. BRVM ticker)',
@@ -34,7 +34,7 @@ export class CreateTradeDto {
   })
   @IsString()
   @IsNotEmpty()
-  assetSymbol: string;
+  assetSymbol!: string;
 
   @ApiProperty({
     description: 'Trade direction',
@@ -42,7 +42,7 @@ export class CreateTradeDto {
     example: TradeType.BUY,
   })
   @IsEnum(TradeType)
-  type: TradeType;
+  type!: TradeType;
 
   @ApiProperty({
     description: 'Order type',
@@ -50,7 +50,7 @@ export class CreateTradeDto {
     example: OrderType.MARKET,
   })
   @IsEnum(OrderType)
-  orderType: OrderType;
+  orderType!: OrderType;
 
   @ApiProperty({
     description: 'Number of units/shares to trade',
@@ -58,7 +58,7 @@ export class CreateTradeDto {
   })
   @IsNumber()
   @IsPositive()
-  quantity: number;
+  quantity!: number;
 
   @ApiProperty({
     description: 'Limit price per unit in CFA (required for LIMIT orders)',
@@ -76,7 +76,7 @@ export class CreateTradeDto {
   })
   @IsString()
   @IsNotEmpty()
-  pin: string;
+  pin!: string;
 
   @ApiProperty({
     description: 'Optional note for the trade',

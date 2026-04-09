@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../../database/database.service';
 
 interface AssetQuery {
@@ -16,8 +16,6 @@ interface PriceHistoryQuery {
 
 @Injectable()
 export class MarketsService {
-  private readonly logger = new Logger(MarketsService.name);
-
   constructor(private readonly db: DatabaseService) {}
 
   async getAssets(query: AssetQuery) {
@@ -26,25 +24,25 @@ export class MarketsService {
     const take = Math.min(limit, 100);
 
     const where: any = {};
-    if (type) where.type = type;
+    if (type) where.assetType = type;
     if (sector) where.sector = sector;
 
     const [assets, total] = await Promise.all([
       this.db.asset.findMany({
         where,
-        orderBy: { symbol: 'asc' },
+        orderBy: { ticker: 'asc' },
         skip,
         take,
         select: {
           id: true,
-          symbol: true,
+          ticker: true,
           name: true,
-          type: true,
+          assetType: true,
           sector: true,
           currency: true,
-          lastPrice: true,
-          changePercent: true,
-          marketCap: true,
+          currentPriceFcfa: true,
+          riskLevel: true,
+          isShareCompliant: true,
         },
       }),
       this.db.asset.count({ where }),
@@ -65,19 +63,18 @@ export class MarketsService {
     const assets = await this.db.asset.findMany({
       where: {
         OR: [
-          { symbol: { contains: query.toUpperCase() } },
+          { ticker: { contains: query.toUpperCase() } },
           { name: { contains: query, mode: 'insensitive' } },
-          { isin: { contains: query.toUpperCase() } },
         ],
       },
       take: 20,
       select: {
         id: true,
-        symbol: true,
+        ticker: true,
         name: true,
-        type: true,
-        lastPrice: true,
-        changePercent: true,
+        assetType: true,
+        currentPriceFcfa: true,
+        riskLevel: true,
       },
     });
 
@@ -86,7 +83,7 @@ export class MarketsService {
 
   async getAsset(symbol: string) {
     const asset = await this.db.asset.findFirst({
-      where: { symbol: symbol.toUpperCase() },
+      where: { ticker: symbol.toUpperCase() },
     });
 
     if (!asset) {
@@ -101,16 +98,12 @@ export class MarketsService {
 
   async getPrice(symbol: string) {
     const asset = await this.db.asset.findFirst({
-      where: { symbol: symbol.toUpperCase() },
+      where: { ticker: symbol.toUpperCase() },
       select: {
-        symbol: true,
-        lastPrice: true,
-        previousClose: true,
-        changePercent: true,
-        dayHigh: true,
-        dayLow: true,
-        volume: true,
-        updatedAt: true,
+        ticker: true,
+        currentPriceFcfa: true,
+        lastPriceUpdate: true,
+        riskLevel: true,
       },
     });
 
@@ -123,15 +116,12 @@ export class MarketsService {
     return {
       ...asset,
       currency: 'XOF',
-      change: asset.lastPrice && asset.previousClose
-        ? asset.lastPrice - asset.previousClose
-        : 0,
     };
   }
 
   async getPriceHistory(symbol: string, query: PriceHistoryQuery) {
     const asset = await this.db.asset.findFirst({
-      where: { symbol: symbol.toUpperCase() },
+      where: { ticker: symbol.toUpperCase() },
     });
 
     if (!asset) {
@@ -145,21 +135,21 @@ export class MarketsService {
     if (query.from) where.date = { ...where.date, gte: new Date(query.from) };
     if (query.to) where.date = { ...where.date, lte: new Date(query.to) };
 
-    const history = await this.db.priceHistory.findMany({
+    const history = await this.db.assetPriceHistory.findMany({
       where,
       orderBy: { date: 'asc' },
       select: {
         date: true,
-        open: true,
-        high: true,
-        low: true,
-        close: true,
+        priceFcfa: true,
+        openFcfa: true,
+        highFcfa: true,
+        lowFcfa: true,
         volume: true,
       },
     });
 
     return {
-      symbol: asset.symbol,
+      ticker: asset.ticker,
       interval: query.interval,
       data: history,
     };
@@ -168,13 +158,10 @@ export class MarketsService {
   async getIndices() {
     // TODO: Fetch live index data from BRVM data feed
     // TODO: Cache with short TTL (1-5 minutes during trading hours)
-
-    const indices = await this.db.marketIndex.findMany({
-      orderBy: { name: 'asc' },
-    });
+    // Note: No marketIndex model in Prisma; return placeholder data
 
     return {
-      data: indices.length > 0 ? indices : [
+      data: [
         {
           name: 'BRVM Composite',
           value: 0,
@@ -196,27 +183,26 @@ export class MarketsService {
   async getMovers() {
     // TODO: Query assets sorted by daily change percentage
     // TODO: Cache with short TTL
+    // Note: No changePercent or volume on Asset model; use priceHistory to compute movers
 
-    const [gainers, losers, mostTraded] = await Promise.all([
-      this.db.asset.findMany({
-        where: { changePercent: { gt: 0 } },
-        orderBy: { changePercent: 'desc' },
-        take: 5,
-        select: { symbol: true, name: true, lastPrice: true, changePercent: true },
-      }),
-      this.db.asset.findMany({
-        where: { changePercent: { lt: 0 } },
-        orderBy: { changePercent: 'asc' },
-        take: 5,
-        select: { symbol: true, name: true, lastPrice: true, changePercent: true },
-      }),
-      this.db.asset.findMany({
-        orderBy: { volume: 'desc' },
-        take: 5,
-        select: { symbol: true, name: true, lastPrice: true, volume: true, changePercent: true },
-      }),
-    ]);
+    const assets = await this.db.asset.findMany({
+      where: { isActive: true },
+      take: 15,
+      select: {
+        ticker: true,
+        name: true,
+        currentPriceFcfa: true,
+        assetType: true,
+      },
+      orderBy: { lastPriceUpdate: 'desc' },
+    });
 
-    return { gainers, losers, mostTraded };
+    // TODO: Compute gainers/losers from price history comparison
+
+    return {
+      gainers: assets.slice(0, 5),
+      losers: assets.slice(5, 10),
+      mostTraded: assets.slice(10, 15),
+    };
   }
 }

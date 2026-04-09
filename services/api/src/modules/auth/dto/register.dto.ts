@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
   IsNotEmpty,
@@ -11,45 +11,34 @@ import {
 
 export class RegisterDto {
   @ApiProperty({
-    description: 'Phone number in E.164 format (WAEMU region)',
-    example: '+22170001234',
+    description: 'Phone number in E.164 format (Senegal: +221)',
+    example: '+221770001234',
   })
   @IsString()
   @IsNotEmpty()
-  @Matches(/^\+\d{10,15}$/, {
-    message: 'Phone number must be in E.164 format, e.g. +22170001234',
-  })
-  phone: string;
+  @Matches(/^\+\d{10,15}$/, { message: 'Phone must be E.164 format, e.g. +221770001234' })
+  phone!: string;
 
-  @ApiProperty({
-    description: 'Full legal name',
-    example: 'Aminata Diallo',
-  })
+  @ApiProperty({ description: 'Full legal name', example: 'Aminata Diallo' })
   @IsString()
   @IsNotEmpty()
   @MinLength(2)
   @MaxLength(100)
-  fullName: string;
+  fullName!: string;
 
-  @ApiProperty({
-    description: 'Email address (optional)',
-    example: 'aminata@example.com',
-    required: false,
-  })
+  @ApiPropertyOptional({ description: 'Email address', example: 'aminata@example.com' })
   @IsOptional()
   @IsEmail()
   email?: string;
 
-  @ApiProperty({
-    description: 'Preferred language code',
-    example: 'fr',
-    default: 'fr',
-    required: false,
-  })
+  @ApiPropertyOptional({ description: 'Preferred language', example: 'fr', default: 'fr' })
   @IsOptional()
   @IsString()
-  @Matches(/^(fr|en|wo|bm)$/, {
-    message: 'Language must be one of: fr, en, wo, bm',
-  })
+  @Matches(/^(fr|wo|en)$/, { message: 'Language must be fr, wo, or en' })
   language?: string;
+
+  @ApiPropertyOptional({ description: 'Referral code from another user', example: 'AK1A2B3C4D' })
+  @IsOptional()
+  @IsString()
+  referralCode?: string;
 }

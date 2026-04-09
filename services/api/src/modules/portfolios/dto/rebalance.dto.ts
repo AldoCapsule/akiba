@@ -5,13 +5,13 @@ import { Type } from 'class-transformer';
 export class RebalanceAllocationDto {
   @ApiProperty({ description: 'Asset class identifier', example: 'BRVM_EQUITY' })
   @IsString()
-  assetClass: string;
+  assetClass!: string;
 
   @ApiProperty({ description: 'New target allocation percentage', example: 45 })
   @IsNumber()
   @Min(0)
   @Max(100)
-  targetPercent: number;
+  targetPercent!: number;
 }
 
 export class RebalanceDto {

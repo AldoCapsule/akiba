@@ -18,40 +18,27 @@ export class SavingsService {
       data: {
         userId,
         name: dto.name,
-        category: dto.category,
-        targetAmount: dto.targetAmount,
+        goalType: dto.category.toLowerCase() as any,
+        targetAmountFcfa: BigInt(dto.targetAmount),
         targetDate: new Date(dto.targetDate),
-        description: dto.description,
-        currentAmount: dto.initialContribution || 0,
-        status: 'ACTIVE',
+        currentAmountFcfa: BigInt(dto.initialContribution || 0),
+        isActive: true,
       },
     });
-
-    if (dto.initialContribution) {
-      await this.db.savingsContribution.create({
-        data: {
-          goalId: goal.id,
-          userId,
-          amount: dto.initialContribution,
-          type: 'DEPOSIT',
-          note: 'Initial contribution',
-        },
-      });
-    }
 
     this.logger.log(`Savings goal created: ${goal.id} - ${dto.name} (${dto.targetAmount} XOF)`);
 
     return {
       id: goal.id,
       name: goal.name,
-      category: goal.category,
-      targetAmount: goal.targetAmount,
-      currentAmount: goal.currentAmount,
-      progressPercent: goal.targetAmount > 0
-        ? Math.round((goal.currentAmount / goal.targetAmount) * 100)
+      goalType: goal.goalType,
+      targetAmountFcfa: goal.targetAmountFcfa,
+      currentAmountFcfa: goal.currentAmountFcfa,
+      progressPercent: goal.targetAmountFcfa > BigInt(0)
+        ? Math.round(Number(goal.currentAmountFcfa * BigInt(100) / goal.targetAmountFcfa))
         : 0,
       targetDate: goal.targetDate,
-      status: 'ACTIVE',
+      isActive: goal.isActive,
     };
   }
 
@@ -64,14 +51,14 @@ export class SavingsService {
     return goals.map((g) => ({
       id: g.id,
       name: g.name,
-      category: g.category,
-      targetAmount: g.targetAmount,
-      currentAmount: g.currentAmount,
-      progressPercent: g.targetAmount > 0
-        ? Math.round((g.currentAmount / g.targetAmount) * 100)
+      goalType: g.goalType,
+      targetAmountFcfa: g.targetAmountFcfa,
+      currentAmountFcfa: g.currentAmountFcfa,
+      progressPercent: g.targetAmountFcfa > BigInt(0)
+        ? Math.round(Number(g.currentAmountFcfa * BigInt(100) / g.targetAmountFcfa))
         : 0,
       targetDate: g.targetDate,
-      status: g.status,
+      isActive: g.isActive,
     }));
   }
 
@@ -84,31 +71,26 @@ export class SavingsService {
       throw new NotFoundException('Savings goal not found');
     }
 
-    const contributions = await this.db.savingsContribution.findMany({
-      where: { goalId },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
+    const daysRemaining = goal.targetDate
+      ? Math.max(
+          0,
+          Math.ceil((goal.targetDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+        )
+      : 0;
 
-    const daysRemaining = Math.max(
-      0,
-      Math.ceil((goal.targetDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
-    );
-
-    const remaining = goal.targetAmount - goal.currentAmount;
+    const remaining = goal.targetAmountFcfa - goal.currentAmountFcfa;
     const monthlyNeeded = daysRemaining > 0
-      ? Math.ceil(remaining / (daysRemaining / 30))
-      : remaining;
+      ? Number(remaining) / (daysRemaining / 30)
+      : Number(remaining);
 
     return {
       ...goal,
-      progressPercent: goal.targetAmount > 0
-        ? Math.round((goal.currentAmount / goal.targetAmount) * 100)
+      progressPercent: goal.targetAmountFcfa > BigInt(0)
+        ? Math.round(Number(goal.currentAmountFcfa * BigInt(100) / goal.targetAmountFcfa))
         : 0,
       remaining,
       daysRemaining,
-      monthlyNeeded,
-      contributions,
+      monthlyNeeded: Math.ceil(monthlyNeeded),
     };
   }
 
@@ -118,31 +100,23 @@ export class SavingsService {
     // TODO: Debit cash balance, credit savings goal
 
     const goal = await this.db.savingsGoal.findFirst({
-      where: { id: goalId, userId, status: 'ACTIVE' },
+      where: { id: goalId, userId, isActive: true },
     });
 
     if (!goal) {
       throw new NotFoundException('Active savings goal not found');
     }
 
-    const newAmount = goal.currentAmount + dto.amount;
+    const contributionAmount = BigInt(dto.amount);
+    const newAmount = goal.currentAmountFcfa + contributionAmount;
+    const isCompleted = newAmount >= goal.targetAmountFcfa;
 
     await this.db.savingsGoal.update({
       where: { id: goalId },
       data: {
-        currentAmount: newAmount,
-        status: newAmount >= goal.targetAmount ? 'COMPLETED' : 'ACTIVE',
-        updatedAt: new Date(),
-      },
-    });
-
-    await this.db.savingsContribution.create({
-      data: {
-        goalId,
-        userId,
-        amount: dto.amount,
-        type: 'DEPOSIT',
-        note: dto.note,
+        currentAmountFcfa: newAmount,
+        isActive: !isCompleted,
+        completedAt: isCompleted ? new Date() : undefined,
       },
     });
 
@@ -152,10 +126,10 @@ export class SavingsService {
       goalId,
       contributed: dto.amount,
       newBalance: newAmount,
-      progressPercent: goal.targetAmount > 0
-        ? Math.round((newAmount / goal.targetAmount) * 100)
+      progressPercent: goal.targetAmountFcfa > BigInt(0)
+        ? Math.round(Number(newAmount * BigInt(100) / goal.targetAmountFcfa))
         : 0,
-      isCompleted: newAmount >= goal.targetAmount,
+      isCompleted,
     };
   }
 
@@ -171,27 +145,19 @@ export class SavingsService {
       throw new NotFoundException('Savings goal not found');
     }
 
-    if (goal.currentAmount < dto.amount) {
+    const withdrawalAmount = BigInt(dto.amount);
+
+    if (goal.currentAmountFcfa < withdrawalAmount) {
       throw new BadRequestException(
-        `Insufficient goal balance. Available: ${goal.currentAmount} XOF`,
+        `Insufficient goal balance. Available: ${goal.currentAmountFcfa} XOF`,
       );
     }
 
-    const newAmount = goal.currentAmount - dto.amount;
+    const newAmount = goal.currentAmountFcfa - withdrawalAmount;
 
     await this.db.savingsGoal.update({
       where: { id: goalId },
-      data: { currentAmount: newAmount, updatedAt: new Date() },
-    });
-
-    await this.db.savingsContribution.create({
-      data: {
-        goalId,
-        userId,
-        amount: dto.amount,
-        type: 'WITHDRAWAL',
-        note: dto.note,
-      },
+      data: { currentAmountFcfa: newAmount },
     });
 
     this.logger.log(`Withdrawal of ${dto.amount} XOF from goal ${goalId}`);
@@ -216,17 +182,15 @@ export class SavingsService {
       where: { id: goalId },
       data: {
         name: dto.name,
-        targetAmount: dto.targetAmount,
+        targetAmountFcfa: dto.targetAmount ? BigInt(dto.targetAmount) : undefined,
         targetDate: dto.targetDate ? new Date(dto.targetDate) : undefined,
-        description: dto.description,
-        updatedAt: new Date(),
       },
     });
 
     return {
       id: updated.id,
       name: updated.name,
-      targetAmount: updated.targetAmount,
+      targetAmountFcfa: updated.targetAmountFcfa,
       targetDate: updated.targetDate,
       message: 'Goal updated',
     };
@@ -246,10 +210,10 @@ export class SavingsService {
 
     await this.db.savingsGoal.update({
       where: { id: goalId },
-      data: { status: 'CLOSED', updatedAt: new Date() },
+      data: { isActive: false },
     });
 
-    this.logger.log(`Savings goal ${goalId} closed. Returned ${goal.currentAmount} XOF to cash.`);
+    this.logger.log(`Savings goal ${goalId} closed. Returned ${goal.currentAmountFcfa} XOF to cash.`);
   }
 
   async createRecurring(userId: string, dto: CreateRecurringDto) {
@@ -258,7 +222,7 @@ export class SavingsService {
     // TODO: Register recurring debit with payment provider
 
     const goal = await this.db.savingsGoal.findFirst({
-      where: { id: dto.goalId, userId, status: 'ACTIVE' },
+      where: { id: dto.goalId, userId, isActive: true },
     });
 
     if (!goal) {
@@ -268,13 +232,12 @@ export class SavingsService {
     const recurring = await this.db.recurringDeposit.create({
       data: {
         userId,
-        goalId: dto.goalId,
-        amount: dto.amount,
-        frequency: dto.frequency,
-        sourceAccount: dto.sourceAccount,
-        startDate: new Date(dto.startDate),
-        endDate: dto.endDate ? new Date(dto.endDate) : goal.targetDate,
-        status: 'ACTIVE',
+        savingsGoalId: dto.goalId,
+        amountFcfa: BigInt(dto.amount),
+        frequency: dto.frequency.toLowerCase() as any,
+        sourceWalletType: dto.sourceAccount,
+        nextExecutionDate: new Date(dto.startDate),
+        isActive: true,
       },
     });
 
@@ -289,13 +252,13 @@ export class SavingsService {
       amount: dto.amount,
       frequency: dto.frequency,
       startDate: dto.startDate,
-      status: 'ACTIVE',
+      isActive: true,
     };
   }
 
   async getRecurring(userId: string) {
     const deposits = await this.db.recurringDeposit.findMany({
-      where: { userId, status: 'ACTIVE' },
+      where: { userId, isActive: true },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -315,7 +278,7 @@ export class SavingsService {
 
     await this.db.recurringDeposit.update({
       where: { id: recurringId },
-      data: { status: 'CANCELLED', updatedAt: new Date() },
+      data: { isActive: false },
     });
 
     this.logger.log(`Recurring deposit ${recurringId} cancelled`);
@@ -323,17 +286,17 @@ export class SavingsService {
 
   async getVault(userId: string) {
     const goals = await this.db.savingsGoal.findMany({
-      where: { userId, status: 'ACTIVE' },
+      where: { userId, isActive: true },
     });
 
-    const totalSaved = goals.reduce((sum, g) => sum + g.currentAmount, 0);
-    const totalTarget = goals.reduce((sum, g) => sum + g.targetAmount, 0);
+    const totalSaved = goals.reduce((sum, g) => sum + g.currentAmountFcfa, BigInt(0));
+    const totalTarget = goals.reduce((sum, g) => sum + g.targetAmountFcfa, BigInt(0));
 
     return {
       totalSaved,
       totalTarget,
-      overallProgress: totalTarget > 0
-        ? Math.round((totalSaved / totalTarget) * 100)
+      overallProgress: totalTarget > BigInt(0)
+        ? Math.round(Number(totalSaved * BigInt(100) / totalTarget))
         : 0,
       activeGoals: goals.length,
       currency: 'XOF',

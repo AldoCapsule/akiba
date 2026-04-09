@@ -100,7 +100,7 @@ export class PaymentsController {
   })
   @ApiParam({ name: 'id', description: 'Transaction UUID' })
   @ApiOkResponse({ description: 'Transaction details returned' })
-  async getTransaction(@Request() req: any, @Param('id') id: string) {
+  async getTransaction(@Request() req: any, @Param('id') id: string): Promise<any> {
     return this.paymentsService.getTransaction(req.user?.id, id);
   }
 
