@@ -19,7 +19,7 @@ services:
     container_name: akiba-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       POSTGRES_DB: akiba_dev
       POSTGRES_USER: akiba
