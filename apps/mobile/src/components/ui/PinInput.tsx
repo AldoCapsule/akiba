@@ -1,5 +1,5 @@
-import React, { useRef, useState, useEffect } from 'react';
-import { View, TextInput, StyleSheet, Animated, Easing } from 'react-native';
+import { useRef, useState, useEffect } from 'react';
+import { TextInput, StyleSheet, Animated, Easing } from 'react-native';
 import { Colors } from '../../constants/colors';
 import { FontSize, FontWeight } from '../../constants/fonts';
 import { Spacing, BorderRadius, MIN_TOUCH_TARGET } from '../../constants/spacing';
