@@ -99,3 +99,7 @@ export interface ApiResponse<T> {
   error?: { code: string; message: string; details?: Record<string, unknown> };
   meta?: { page?: number; limit?: number; total?: number };
 }
+
+export interface PaginatedResponse<T> extends ApiResponse<T[]> {
+  meta: { page: number; limit: number; total: number };
+}

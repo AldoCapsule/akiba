@@ -22,7 +22,7 @@ const RESEND_DELAY_SECONDS = 60;
 
 export default function VerifyOtpScreen() {
   const router = useRouter();
-  const { verifyOtp, isVerifyingOtp, resendOtp, isResendingOtp, pendingPhone, t } = useAuth();
+  const { verifyOtp, isVerifyingOtp, requestOtp, isRequestingOtp, pendingPhone, t } = useAuth();
 
   const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
   const [error, setError] = useState('');
@@ -91,7 +91,7 @@ export default function VerifyOtpScreen() {
 
   const handleResend = async () => {
     try {
-      await resendOtp();
+      await requestOtp(pendingPhone!);
       setResendCountdown(RESEND_DELAY_SECONDS);
       setError('');
     } catch {

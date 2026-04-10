@@ -18,6 +18,8 @@ export default function AuthLayout() {
       <Stack.Screen name="welcome" />
       <Stack.Screen name="register" />
       <Stack.Screen name="verify-otp" />
+      <Stack.Screen name="set-pin" />
+      <Stack.Screen name="login" />
       <Stack.Screen name="kyc" />
       <Stack.Screen name="risk-assessment" />
     </Stack>

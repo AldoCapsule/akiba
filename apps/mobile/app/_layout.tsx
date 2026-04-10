@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '../src/store/auth.store';
+import { useMockData } from '../src/mocks';
 import { Colors } from '../src/constants/colors';
 
 const queryClient = new QueryClient({
@@ -26,6 +27,8 @@ const queryClient = new QueryClient({
  * - Zustand stores are available via hooks (no provider needed)
  */
 export default function RootLayout() {
+  useMockData();
+
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
