@@ -1,9 +1,20 @@
 import { create } from 'zustand';
-import { MMKV } from 'react-native-mmkv';
+import { Platform } from 'react-native';
 import { Locale, getDeviceLocale, createTranslator } from '../i18n';
 import type { UserData } from '../api/auth';
 
-const storage = new MMKV({ id: 'akiba-auth' });
+// MMKV is native-only; use localStorage on web
+const storage = Platform.OS === 'web'
+  ? {
+      getString: (key: string) => localStorage.getItem(`akiba-auth:${key}`) ?? undefined,
+      getBoolean: (key: string) => {
+        const v = localStorage.getItem(`akiba-auth:${key}`);
+        return v === null ? undefined : v === 'true';
+      },
+      set: (key: string, value: string | boolean) =>
+        localStorage.setItem(`akiba-auth:${key}`, String(value)),
+    }
+  : new (require('react-native-mmkv').MMKV)({ id: 'akiba-auth' });
 
 export interface AuthState {
   isAuthenticated: boolean;
